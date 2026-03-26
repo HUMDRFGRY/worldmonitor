@@ -1,5 +1,6 @@
 import type { Feed } from '@/types';
 import { SITE_VARIANT } from './variant';
+import { getEnabledCustomSources, customSourceToFeed } from './custom-sources';
 
 // Helper to create RSS proxy URL (Vercel)
 const rss = (url: string) => `/api/rss-proxy?url=${encodeURIComponent(url)}`;
@@ -1118,6 +1119,9 @@ export const INTEL_SOURCES: Feed[] = [
   { name: 'FAO News', url: rss('https://www.fao.org/feeds/fao-newsroom-rss'), type: 'economic' },
   { name: 'FAO GIEWS', url: rss('https://news.google.com/rss/search?q=site:fao.org+GIEWS+food+security+when:30d&hl=en-US&gl=US&ceid=US:en'), type: 'economic' },
   { name: 'EU ISS', url: rss('https://news.google.com/rss/search?q=site:iss.europa.eu+when:7d&hl=en-US&gl=US&ceid=US:en'), type: 'intl' },
+
+  // Custom sources (defined in src/config/custom-sources.ts, enabled === true only)
+  ...getEnabledCustomSources().map(customSourceToFeed),
 ];
 
 // Keywords that trigger alert status - must be specific to avoid false positives
