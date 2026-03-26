@@ -1027,14 +1027,26 @@ const HAPPY_FEEDS: Record<string, Feed[]> = {
   ],
 };
 
-// Variant-aware exports
-export const FEEDS = SITE_VARIANT === 'tech'
-  ? TECH_FEEDS
-  : SITE_VARIANT === 'finance'
-    ? FINANCE_FEEDS
-    : SITE_VARIANT === 'happy'
-      ? HAPPY_FEEDS
-      : FULL_FEEDS;
+// Helper: filter out feeds explicitly disabled via `enabled: false`
+// Feeds with `enabled: undefined` (the default) are treated as enabled.
+function filterEnabled(feeds: Record<string, Feed[]>): Record<string, Feed[]> {
+  const result: Record<string, Feed[]> = {};
+  for (const [key, items] of Object.entries(feeds)) {
+    result[key] = items.filter(f => f.enabled !== false);
+  }
+  return result;
+}
+
+// Variant-aware exports (disabled feeds are excluded at runtime)
+export const FEEDS = filterEnabled(
+  SITE_VARIANT === 'tech'
+    ? TECH_FEEDS
+    : SITE_VARIANT === 'finance'
+      ? FINANCE_FEEDS
+      : SITE_VARIANT === 'happy'
+        ? HAPPY_FEEDS
+        : FULL_FEEDS
+);
 
 export const SOURCE_REGION_MAP: Record<string, { labelKey: string; feedKeys: string[] }> = {
   // Full (geopolitical) variant regions

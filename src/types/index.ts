@@ -8,6 +8,14 @@ export interface Feed {
   propagandaRisk?: PropagandaRisk;
   stateAffiliated?: string;  // e.g., "Russia", "China", "Iran"
   lang?: string;             // ISO 2-letter code for filtering
+  // Extended fields for customizable source configuration
+  id?: string;               // Unique source identifier
+  topic?: string;            // Topic/category (e.g., "politics", "tech")
+  priority?: number;         // Numeric priority (lower = higher priority)
+  pollIntervalMs?: number;   // Polling interval in milliseconds
+  timeoutMs?: number;        // Request timeout in milliseconds
+  rateLimit?: number;        // Max requests per minute
+  enabled?: boolean;         // Whether the source is active (default: true)
 }
 
 export type { ThreatClassification, ThreatLevel, EventCategory } from '@/services/threat-classifier';
