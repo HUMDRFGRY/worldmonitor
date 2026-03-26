@@ -22,6 +22,19 @@ export { UNDERSEA_CABLES, MAP_URLS } from './geo';
 // AI Datacenters (shared)
 export { AI_DATA_CENTERS } from './ai-datacenters';
 
+// Custom sources (user-defined feeds)
+export {
+  CUSTOM_SOURCES,
+  LOADED_CUSTOM_FEEDS,
+  CUSTOM_FEEDS_BY_TOPIC,
+  loadCustomSources,
+  validateCustomSource,
+  groupCustomFeedsByTopic,
+  type CustomSourceConfig,
+  type CustomSourceType,
+  type ValidationResult,
+} from './custom-sources';
+
 // Feeds configuration (shared functions, variant-specific data)
 export {
   SOURCE_TIERS,
