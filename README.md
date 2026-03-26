@@ -1513,6 +1513,8 @@ Set `WS_RELAY_URL` (server-side, HTTPS) and `VITE_WS_RELAY_URL` (client-side, WS
 
 Contributions welcome! See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed guidelines, including the Sebuf RPC framework workflow, how to add data sources and RSS feeds, and our AI-assisted development policy. The project also maintains a [Code of Conduct](./CODE_OF_CONDUCT.md) and [Security Policy](./SECURITY.md) for responsible vulnerability disclosure.
 
+To add or customize news sources, see [docs/CUSTOM_SOURCES.md](./docs/CUSTOM_SOURCES.md) for a step-by-step guide (中文).
+
 ```bash
 # Development
 npm run dev          # Full variant (worldmonitor.app)
