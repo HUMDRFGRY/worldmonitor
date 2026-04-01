@@ -31,7 +31,7 @@
 </p>
 
 <p align="center">
-  <a href="https://docs.worldmonitor.app"><strong>文档</strong></a> &nbsp;·&nbsp;
+  <a href="./docs/documentation.mdx"><strong>文档</strong></a> &nbsp;·&nbsp;
   <a href="https://github.com/koala73/worldmonitor/releases/latest"><strong>发布页</strong></a> &nbsp;·&nbsp;
   <a href="./CONTRIBUTING_CN.md"><strong>贡献指南</strong></a>
 </p>
@@ -52,7 +52,7 @@
 - **原生桌面应用**（Tauri 2），适用于 macOS、Windows 和 Linux
 - **21 种语言**，包含母语新闻源和从右到左书写支持
 
-如需查看完整功能列表、架构、数据源和算法，请参阅 **[文档](https://docs.worldmonitor.app)**。
+如需查看完整功能列表、架构、数据源和算法，请参阅 **[文档](./docs/documentation.mdx)**。
 
 ---
 
@@ -76,7 +76,7 @@ npm run dev:commodity  # commodity.worldmonitor.app
 npm run dev:happy      # happy.worldmonitor.app
 ```
 
-有关部署选项（Vercel、Docker、静态），请参阅 **[自托管指南](https://docs.worldmonitor.app/getting-started)**。
+有关部署选项（Vercel、Docker、静态），请参阅 **[自托管指南](./docs/getting-started.mdx)**。
 
 ---
 
@@ -91,7 +91,7 @@ npm run dev:happy      # happy.worldmonitor.app
 | **部署** | Vercel Edge Functions（60+）、Railway relay、Tauri、PWA |
 | **缓存** | Redis（Upstash）、三层缓存、CDN、service worker |
 
-完整技术细节请见 **[架构文档](https://docs.worldmonitor.app/architecture)**。
+完整技术细节请见 **[架构文档](./docs/architecture.mdx)**。
 
 ---
 
@@ -103,7 +103,7 @@ npm run dev:happy      # happy.worldmonitor.app
 
 ## 数据源
 
-WorldMonitor 汇聚了 30+ 个外部数据源，覆盖地缘政治、金融、能源、气候、航空和网络安全。有关提供方、订阅层级和采集方式的完整信息，请参阅 [数据源目录](https://docs.worldmonitor.app/data-sources)。
+WorldMonitor 汇聚了 30+ 个外部数据源，覆盖地缘政治、金融、能源、气候、航空和网络安全。有关提供方、订阅层级和采集方式的完整信息，请参阅 [数据源目录](./docs/data-sources.mdx)。
 
 ---
 
@@ -157,7 +157,7 @@ Copyright (C) 2024-2026 Elie Habib. 保留所有权利。
 
 <p align="center">
   <a href="https://worldmonitor.app">worldmonitor.app</a> &nbsp;·&nbsp;
-  <a href="https://docs.worldmonitor.app">docs.worldmonitor.app</a> &nbsp;·&nbsp;
+  <a href="./docs/documentation.mdx">documentation</a> &nbsp;·&nbsp;
   <a href="https://finance.worldmonitor.app">finance.worldmonitor.app</a> &nbsp;·&nbsp;
   <a href="https://commodity.worldmonitor.app">commodity.worldmonitor.app</a>
 </p>

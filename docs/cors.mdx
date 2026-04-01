@@ -82,10 +82,10 @@ Both implementations allow these request headers:
 
 - `Content-Type`
 - `Authorization`
-- `X-WorldMonitor-Key` (API key for desktop/third-party access). See [API Key Gating](/api-key-deployment) for key management details.
+- `X-WorldMonitor-Key` (API key for desktop/third-party access). See [API Key Gating](./api-key-deployment.mdx) for key management details.
 
 To allow additional headers, update `Access-Control-Allow-Headers` in both files.
 
 ## Railway Relay CORS
 
-The Railway relay (`scripts/ais-relay.cjs`) has its own CORS handling with the `ALLOW_VERCEL_PREVIEW_ORIGINS` env var. See [RELAY_PARAMETERS.md](/relay-parameters) for details.
+The Railway relay (`scripts/ais-relay.cjs`) has its own CORS handling with the `ALLOW_VERCEL_PREVIEW_ORIGINS` env var. See [RELAY_PARAMETERS.md](./relay-parameters.mdx) for details.
