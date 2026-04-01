@@ -1,0 +1,84 @@
+---
+title: "地图引擎"
+description: "World Monitor 中的 3D 地球仪和二维平面地图渲染、纹理、着色器、聚类以及移动端触控手势。"
+---
+
+<p align="center">
+  <a href="./map-engine.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./map-engine_CN.mdx"><strong>中文</strong></a>
+</p>
+
+### 双地图引擎 - 3D 地球仪 + 平面地图
+
+系统提供两种可运行时切换的渲染引擎，可通过 Settings 或 `VITE_MAP_INTERACTION_MODE` 环境变量（`globe` 或 `flat`）切换。该偏好会持久化到 localStorage。
+
+**3D 地球仪（globe.gl + Three.js）** - 一个具有完整倾角和旋转的写实 3D 地球：
+
+- **地球纹理** - 地形-海深日面纹理（`earth-topo-bathy.jpg`）、海洋反射用的高光水面贴图，以及星空夜景背景
+- **大气着色器** - Fresnel 边缘光效果模拟地球边缘的大气散射
+- **自动旋转** - 地球在空闲时缓慢旋转；任何用户交互都会暂停，60 秒无操作后恢复
+- **HTML 标记层** - 所有 28+ 数据类别（冲突、情报热点、AIS 船舶、航班、抗议、火灾等）都会以 HTML 元素固定到地球表面的地理坐标上
+- **地缘政治多边形覆盖层** - 朝鲜非军事区和其他边界多边形会直接渲染在冲突图层下方的地球上
+- **防抖标记刷新** - 通过 `debounceFlushMarkers()` 合并高频数据更新，避免在高频刷新时触发 Three.js 场景图崩溃
+- **可配置渲染质量** - Settings 下拉菜单提供五种像素比预设：Auto（匹配设备 DPR，最高 2×）、Eco（1×）、Sharp（1.5×）、4K（2×）和 Insane（3×）。设置会实时更新 Three.js 渲染器，无需刷新页面。桌面（Tauri）构建会把默认值限制在 1.25×，避免没有独显的机器回退到软件渲染
+- **桌面优化默认值** - Tauri 桌面构建会请求高性能 GPU（`powerPreference: 'high-performance'`），禁用 logarithmic depth buffer（节省 shader 开销），并关闭自动旋转和相机阻尼，以消除空闲时持续唤醒渲染循环的问题 - 这解决了某些机器上 1 fps 性能的问题
+- **后台暂停** - 当桌面应用失焦或地球面板隐藏时，WebGL 渲染循环会完全暂停，停止 Three.js 动画循环并取消自动旋转。暂停期间收到的数据更新会排队，并在地球重新显示时一次性刷新，从而消除笔记本上的后台 GPU 开销
+- **Beta 指示器** - 当地球仪处于活动状态时，会出现一个脉动的青色 "BETA" 徽标，提示该功能比平面地图更新
+
+### 地图瓦片提供方
+
+平面地图支持多个瓦片提供方，可通过 **Settings → Map Tile Provider** 在运行时选择。选择会持久化到 localStorage。
+
+| 提供方 | 描述 | 费用 | 默认 |
+|----------|-------------|------|---------|
+| **OpenFreeMap** | 免费、社区托管的 OpenStreetMap 瓦片。提供 Dark 和 Positron 风格。无需 API key。 | 免费 | 是（当 `VITE_PMTILES_URL` 未设置时） |
+| **CARTO** | CARTO 的 Dark Matter 和 Voyager GL 风格。无需 API key。 | 免费层 | 否 |
+| **PMTiles（自托管）** | 通过 [PMTiles](https://protomaps.com/docs/pmtiles) 格式自托管的矢量瓦片。瓦片通过 HTTP Range requests 以单个 `.pmtiles` 存档文件提供 - 浏览器只会下载当前视口的瓦片（每次平移/缩放约 50-200KB），而不是整个文件。需要 `VITE_PMTILES_URL` 环境变量。 | 自托管 | 是（当设置了 `VITE_PMTILES_URL`） |
+| **Auto** | 先尝试 PMTiles，出错时回退到 OpenFreeMap（2 次以上加载失败或 10 秒超时）。仅在设置了 `VITE_PMTILES_URL` 时可用。 | 自托管 | 否 |
+
+**OSS 友好默认值**：当未设置 `VITE_PMTILES_URL`（默认情况）时，Settings 中只显示 OpenFreeMap 和 CARTO。PMTiles 和 Auto 选项会被隐藏。这样社区安装可以开箱即用，无需配置，也没有外部瓦片托管成本。
+
+**自托管 PMTiles**：如果要使用自己的瓦片：
+
+1. 从 [Protomaps builds](https://maps.protomaps.com/builds/) 下载 PMTiles planet 文件，或使用 [`go-pmtiles extract`](https://github.com/protomaps/go-pmtiles) 生成区域提取文件
+2. 上传到任何支持 Range requests 的 HTTP 服务器（Cloudflare R2、S3 或静态文件服务器）
+3. 在 `.env.local` 中设置 `VITE_PMTILES_URL=https://your-server.example/planet.pmtiles`
+4. PMTiles 和 Auto 选项就会出现在 Settings 中
+
+### 地图主题
+
+每个瓦片提供方都有不同的视觉主题，可通过 **Settings → Map Theme** 选择。主题选择是**按提供方分别保存**的 - 切换提供方时会记住各自上次使用的主题。地图主题与应用主题（Auto/Dark/Light）完全独立 - 应用主题只影响 UI 外壳，而地图主题控制底图外观。
+
+| 提供方 | 可用主题 | 默认 |
+|----------|-----------------|---------|
+| **PMTiles** | Black（最深暗）、Dark、Grayscale、Light、White | Black |
+| **OpenFreeMap** | Dark、Positron（浅色） | Dark |
+| **CARTO** | Dark Matter、Voyager（浅色）、Positron（浅色） | Dark Matter |
+
+**Sprite 映射**：PMTiles 主题 `black`、`dark` 和 `grayscale` 使用 `dark` Protomaps sprite sheet；`light` 和 `white` 使用 `light` sprite sheet。
+
+**覆盖层颜色适配**：国家高亮/悬停颜色会自动适配所选地图主题（而不是应用主题），在浅色主题上会使用更低的不透明度以保证可见性。
+
+**回退行为**：使用 PMTiles 或 Auto 模式时，如果瓦片加载失败（CORS 错误、服务器宕机、403），地图会在 10 秒内检测到 2 次以上错误后自动回退到 OpenFreeMap。回退会尊重当前地图主题的明暗属性 - 浅色 PMTiles 主题会回退到 OpenFreeMap Positron，而不是 Dark。触发回退时会记录 console warning。
+
+**平面地图（deck.gl + MapLibre GL JS）** - 一个 WebGL 加速的二维地图，可平滑渲染 60fps 并同时显示数千个标记：
+
+- **图层类型** - `GeoJsonLayer`、`ScatterplotLayer`、`PathLayer`、`IconLayer`、`TextLayer`、`PolygonLayer`、`ArcLayer`、`HeatmapLayer` 以单次渲染 pass 合成
+- **智能聚类** - Supercluster 在低缩放级别聚合标记，放大后展开。聚类阈值会随缩放级别自适应
+- **渐进式显示** - 细节图层（基地、核设施、数据中心）只在放大后显示；缩放自适应透明度会把标记从世界视图的 0.2 渐变到街道级别的 1.0
+- **标签去冲突** - 重叠标签（例如多个 BREAKING 徽标）会按优先级自动抑制，优先级最高的严重级别先显示
+- **昼夜覆盖层** - 终止线会根据当前 UTC 时间把地图分成日照半球和夜半球
+
+**两种引擎共享的内容：**
+
+- **45 个数据图层** - 冲突、军事基地、核设施、海底电缆、管道、卫星火点探测、抗议、自然灾害、数据中心、流离失所流、气候异常、网络威胁 IOC、GPS/GNSS 干扰区域、伊朗袭击、CII 国家风险热图、昼夜终止线、地缘政治边界（朝鲜非军事区）、证券交易所、金融中心、央行、大宗商品枢纽、海湾投资、贸易路线、机场延误、制裁机制等。所有图层定义都维护在一个共享目录（`map-layer-definitions.ts`）中，并同时被两个渲染器消费 - 添加新图层是单文件操作。图层按变体划分：full（29 个地缘政治 + 军事 + 基础设施）、tech（12 个创业/云/网络安全）、finance（15 个交易所/银行/贸易）、happy（5 个正向事件/保护类）
+- **8 个区域预设** - Global、Americas、Europe、MENA、Asia、Africa、Oceania、Latin America
+- **时间过滤** - 1h、6h、24h、48h、7d 事件窗口
+- **URL 状态共享** - 地图中心、缩放级别、活动图层和时间范围都会编码进 URL，方便分享视图（例如 `?view=mena&zoom=4&layers=conflicts,bases`）
+- **移动端触控手势** - 单指平移带惯性速度动画（0.92 衰减因子，基于 4 项循环触摸历史计算）、双指缩放并保持中心点、底部抽屉弹窗可拖拽关闭。8px 位移阈值可避免在点击时误触
+- **基于时区的区域检测** - 首次加载时，地图会根据 `Intl.DateTimeFormat().resolvedOptions().timeZone` 推导出的近似区域进行居中 - 无需网络，也不会弹出地理位置权限请求。在移动端，会调用浏览器 Geolocation API（5 秒超时），并在 zoom 6 下将地图自动居中到用户的精确 GPS 坐标。如果 URL 已经包含共享坐标，则共享视图优先，跳过地理定位
+- **Cmd+K 地图导航** - 命令面板支持 `Map:` 前缀命令，可在任一引擎上飞到任意国家或区域
+
+### 静态地图资源与地理编码
+
+国家边界、边界覆盖层和地理编码服务都记录在 [Maps & Geocoding](/maps-and-geocoding)。所有大型静态文件都通过 `maps.worldmonitor.app` 从 R2 CDN 提供。

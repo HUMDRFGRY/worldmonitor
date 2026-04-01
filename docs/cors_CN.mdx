@@ -1,0 +1,94 @@
+---
+title: "CORS"
+description: "跨域请求保护如何工作，以及在新增 API 端点时该怎么做。"
+---
+
+<p align="center">
+  <a href="./cors.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./cors_CN.mdx"><strong>中文</strong></a>
+</p>
+
+## 概述
+
+每个 API 响应都必须包含 CORS 头，这样浏览器才允许前端读取它。项目里有两套并行实现 - 一套用于独立 edge function，一套用于 sebuf gateway - 但它们共享同样的 origin allowlist 和逻辑。
+
+| 文件 | 用途 | 方法 |
+| --- | --- | --- |
+| `api/_cors.js` | 独立 edge functions（`api/*.js`） | `GET, OPTIONS`（可配置） |
+| `server/cors.ts` | Sebuf gateway（`api/[domain]/v1/[rpc].ts`） | `GET, POST, OPTIONS` |
+
+## 允许的 Origin
+
+两个文件使用相同的正则模式：
+
+| 模式 | 匹配项 |
+| --- | --- |
+| `(*.)?worldmonitor.app` | 生产环境 + 子域名（`tech.`、`finance.` 等） |
+| `worldmonitor-*-elie-*.vercel.app` | Vercel preview 部署 |
+| `localhost:*` / `127.0.0.1:*` | 本地开发 |
+| `tauri.localhost:*` / `*.tauri.localhost:*` | 桌面应用（Tauri v2） |
+| `tauri://localhost` / `asset://localhost` | 桌面应用（Tauri v2 asset 协议） |
+
+来自其他 origin 的请求会收到 403 响应。没有 **Origin** header 的请求（server-to-server、curl）会被放行 - `isDisallowedOrigin` 只会在存在 origin 且不在 allowlist 上时进行拦截。
+
+## 给新的 Edge Function 添加 CORS
+
+`api/` 下每个独立 edge function 都必须手动处理 CORS。请遵循这个模式：
+
+```js
+import { getCorsHeaders, isDisallowedOrigin } from './_cors.js';
+
+export default async function handler(req) {
+  const cors = getCorsHeaders(req);
+
+  // 1. Block disallowed origins
+  if (isDisallowedOrigin(req)) {
+    return new Response(JSON.stringify({ error: 'Forbidden' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json', ...cors },
+    });
+  }
+
+  // 2. Handle preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: cors });
+  }
+
+  // 3. Spread cors into every response
+  return new Response(JSON.stringify(data), {
+    headers: { 'Content-Type': 'application/json', ...cors },
+  });
+}
+```
+
+关键规则：
+
+1. **每个响应** 都必须把 `...cors` 放进 headers - 包括错误、429 速率限制和 500。
+2. **预检**（`OPTIONS`）必须返回带 CORS 头、没有 body 的 `204`。
+3. **`getCorsHeaders(req, methods)`** - 如果端点支持 `GET, OPTIONS` 之外的方法，请传入自定义 methods 字符串（例如 `'POST, OPTIONS'`）。
+
+## Sebuf Gateway（RPC 端点）
+
+在 `.proto` 文件里定义的 RPC 端点不需要手动处理 CORS。gateway（`server/gateway.ts`）会在每次请求中自动调用 `server/cors.ts` 里的 `getCorsHeaders()` 和 `isDisallowedOrigin()`。包括错误边界在内的所有响应都会注入 CORS 头。
+
+## 添加新的允许 Origin
+
+如果要允许新的 origin：
+
+1. 在 **`api/_cors.js`** 和 **`server/cors.ts`** 中都添加一个正则模式到 `ALLOWED_ORIGIN_PATTERNS`
+2. 更新 `api/_cors.test.mjs` 中的测试
+3. 如果这个 origin 是新的生产子域名，也要把它加到 Cloudflare R2 的 CORS 规则中（参见仓库根目录的 MEMORY.md 里关于 R2 CORS 的说明）
+
+## 允许的 Header
+
+两个实现都允许这些请求头：
+
+- `Content-Type`
+- `Authorization`
+- `X-WorldMonitor-Key`（用于桌面/第三方访问的 API key）。关于 key 管理细节，请参见 [API Key Gating](/api-key-deployment)。
+
+如果需要允许更多 header，请同时更新两个文件里的 `Access-Control-Allow-Headers`。
+
+## Railway Relay CORS
+
+Railway relay（`scripts/ais-relay.cjs`）有自己的一套 CORS 处理，使用 `ALLOW_VERCEL_PREVIEW_ORIGINS` 环境变量。详情请参见 [RELAY_PARAMETERS.md](/relay-parameters)。

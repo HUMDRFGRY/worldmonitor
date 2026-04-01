@@ -1,0 +1,233 @@
+---
+title: "桌面发布打包指南（本地、可复现）"
+description: "本指南提供两个桌面变体的可复现本地打包步骤：full（World Monitor）和 tech（Tech Monitor）。"
+---
+
+<p align="center">
+  <a href="./release-packaging.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./release-packaging_CN.mdx"><strong>中文</strong></a>
+</p>
+
+本指南提供两个桌面变体的可复现本地打包步骤：
+
+- **full** → `World Monitor`
+- **tech** → `Tech Monitor`
+
+变体身份由 Tauri 配置控制：
+
+- full: `src-tauri/tauri.conf.json`
+- tech: `src-tauri/tauri.tech.conf.json`
+
+## 前置条件
+
+- Node.js + npm
+- Rust toolchain
+- 操作系统原生 Tauri 构建依赖：
+  - macOS：Xcode command-line tools
+  - Windows：Visual Studio Build Tools + NSIS + WiX
+
+安装依赖（这也会安装桌面脚本使用的固定版 Tauri CLI）：
+
+```bash
+npm ci
+```
+
+所有桌面脚本都会调用 `node_modules/.bin` 中的本地 `tauri` 二进制；在 `npm ci` 之后不需要运行时再下载 `npx` 包。
+如果本地 CLI 缺失，`scripts/desktop-package.mjs` 会快速失败，并给出明确的 `npm ci` 修复提示。
+
+## 网络预检与修复
+
+在 CI 或受管网络中运行桌面打包前，请先验证连接和代理配置：
+
+```bash
+npm ping
+curl -I https://index.crates.io/
+env | grep -E '^(HTTP_PROXY|HTTPS_PROXY|NO_PROXY)='
+```
+
+如果这些检查失败，请使用支持的修复方式之一：
+
+- 内部 npm mirror/proxy。
+- 内部 Cargo sparse index/registry mirror。
+- 预先 vendored 的 Rust crates（`src-tauri/vendor/`）+ Cargo offline mode。
+- 在构建之前恢复所需包输入的 CI artifact/cache 策略。
+
+请参见 `docs/TAURI_VALIDATION_REPORT.md` 获取失败分类标签和排查流程。
+
+## 打包命令
+
+查看脚本用法/帮助：
+
+```bash
+npm run desktop:package -- --help
+```
+
+### macOS（`.app` + `.dmg`）
+
+```bash
+npm run desktop:package:macos:full
+npm run desktop:package:macos:tech
+# 或通用运行器
+npm run desktop:package -- --os macos --variant full
+```
+
+### Windows（`.exe` + `.msi`）
+
+```bash
+npm run desktop:package:windows:full
+npm run desktop:package:windows:tech
+# 或通用运行器
+npm run desktop:package -- --os windows --variant tech
+```
+
+打包器目标在两个 Tauri 配置中都被固定，并由打包脚本强制执行：
+
+- macOS：`app,dmg`
+- Windows：`nsis,msi`
+
+## Rust 依赖模式（在线 vs 受限网络）
+
+在 `src-tauri/` 下，项目支持两条打包路径：
+
+### 1）标准在线构建（默认）
+
+使用常规 Cargo 行为（crates.io）：
+
+```bash
+cd src-tauri
+cargo generate-lockfile
+cargo tauri build --config tauri.conf.json
+```
+
+### 2）受限网络构建（预先 vendored 或内部镜像）
+
+在 `src-tauri/.cargo/config.toml` 中定义了一个可选的 vendored source。要使用它，先在能访问 registry 的机器上准备 vendored crates：
+
+```bash
+# from repository root
+cargo vendor --manifest-path src-tauri/Cargo.toml src-tauri/vendor
+```
+
+然后用以下任一种方式启用离线模式：
+
+- 一次性 CLI 覆盖（不改文件）：
+
+```bash
+cd src-tauri
+cargo generate-lockfile --offline --config 'source.crates-io.replace-with="vendored-sources"'
+cargo tauri build --offline --config 'source.crates-io.replace-with="vendored-sources"' --config tauri.conf.json
+```
+
+- 本地覆盖文件（推荐用于 CI/可重复的离线任务）：
+
+```bash
+cp src-tauri/.cargo/config.local.toml.example src-tauri/.cargo/config.local.toml
+cd src-tauri
+cargo generate-lockfile --offline
+cargo tauri build --offline --config tauri.conf.json
+```
+
+对于 CI 或内部镜像，请把 `src-tauri/vendor/` 作为 artifact 发布，并在受限网络构建前恢复它。如果你的组织使用内部 crates mirror 而不是 vendoring，请在 CI 专用的 Cargo 配置中把 `source.crates-io.replace-with` 指向该镜像，并运行同样的构建命令。
+
+## 可选签名/公证钩子
+
+默认情况下，未签名打包也可工作。
+
+如果环境变量中存在签名凭证，Tauri 会在同一打包命令中自动完成签名/公证。
+
+### macOS Apple Developer 签名 + notarization
+
+打包前设置（Developer ID signature）：
+
+```bash
+export TAURI_BUNDLE_MACOS_SIGNING_IDENTITY="Developer ID Application: Your Company (TEAMID)"
+export TAURI_BUNDLE_MACOS_PROVIDER_SHORT_NAME="TEAMID"
+# Tauri 工具链接受的可选替代键：
+export APPLE_SIGNING_IDENTITY="Developer ID Application: Your Company (TEAMID)"
+```
+
+公证时可选择一种认证方式：
+
+```bash
+# Apple ID + app-specific password
+export APPLE_ID="you@example.com"
+export APPLE_PASSWORD="app-specific-password"
+export APPLE_TEAM_ID="TEAMID"
+
+# OR App Store Connect API key
+export APPLE_API_KEY="ABC123DEFG"
+export APPLE_API_ISSUER="00000000-0000-0000-0000-000000000000"
+export APPLE_API_KEY_PATH="$HOME/.keys/AuthKey_ABC123DEFG.p8"
+```
+
+然后运行标准脚本别名或显式签名脚本别名：
+
+```bash
+npm run desktop:package:macos:full
+# 或
+npm run desktop:package:macos:full:sign
+```
+
+### Windows Authenticode 签名
+
+打包前设置（PowerShell）：
+
+```powershell
+$env:TAURI_BUNDLE_WINDOWS_CERTIFICATE_THUMBPRINT="<CERT_THUMBPRINT>"
+$env:TAURI_BUNDLE_WINDOWS_TIMESTAMP_URL="https://timestamp.digicert.com"
+# 可选：如果使用证书文件 + 密码，而不是证书存储
+$env:TAURI_BUNDLE_WINDOWS_CERTIFICATE="C:\path\to\codesign.pfx"
+$env:TAURI_BUNDLE_WINDOWS_CERTIFICATE_PASSWORD="<PFX_PASSWORD>"
+```
+
+然后运行标准脚本别名或显式签名脚本别名：
+
+```powershell
+npm run desktop:package:windows:full
+# 或
+npm run desktop:package:windows:full:sign
+```
+
+## 变体感知输出（名称/图标）
+
+- full 变体：`World Monitor` / `world-monitor`
+- tech 变体：`Tech Monitor` / `tech-monitor`
+
+这些不同名称在 Tauri 中配置：
+
+- `src-tauri/tauri.conf.json` → `World Monitor` / `world-monitor`
+- `src-tauri/tauri.tech.conf.json` → `Tech Monitor` / `tech-monitor`
+
+如果你想使用变体专属图标，请在每个配置里分别设置 `bundle.icon`，并把每个变体指向各自的图标资产。
+
+## 输出位置
+
+产物会生成在：
+
+```text
+src-tauri/target/release/bundle/
+```
+
+常见子目录：
+
+- `app/` → macOS `.app`
+- `dmg/` → macOS `.dmg`
+- `nsis/` → Windows `.exe` installer
+- `msi/` → Windows `.msi` installer
+
+## 发布检查清单（干净机器）
+
+1. 构建所需 OS + 变体包。
+2. 将产物移动到干净机器（或全新 VM）。
+3. 安装/启动：
+   - macOS：挂载 `.dmg`，把 app 拖到 Applications，再启动。
+   - Windows：运行 `.exe` 或 `.msi`，从开始菜单启动。
+4. 验证启动：
+   - 应用窗口打开且不崩溃。
+   - 地图视图可以渲染。
+   - 初始数据加载路径不会 fatal error。
+5. 验证变体身份：
+   - 窗口标题和产品名与预期变体一致。
+6. 如果启用了签名：
+   - 在 OS 对话框/属性中验证代码签名元数据。
+   - 在 macOS 上验证 notarization/Gatekeeper 接受情况。

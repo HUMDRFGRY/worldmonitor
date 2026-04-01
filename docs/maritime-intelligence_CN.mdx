@@ -1,0 +1,100 @@
+---
+title: "海事情报"
+description: "通过 WebSocket AIS 数据流进行实时船舶追踪、chokepoint 监控、流量密度分析、暗船检测。"
+---
+
+<p align="center">
+  <a href="./maritime-intelligence.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./maritime-intelligence_CN.mdx"><strong>中文</strong></a>
+</p>
+
+Ships 图层通过 AIS（Automatic Identification System）数据提供实时船舶追踪和海域态势感知，监控关键 chokepoint、检测异常船舶行为，并通过 WebSocket 连接流式传输位置更新。
+
+## Chokepoint 监控
+
+系统监控 13 条战略水道，这些水道一旦中断就可能影响全球贸易，其数据来自三个来源：IMF PortWatch（每周船舶通行量）、AISStream（实时 24 小时 crossing counter）和 CorridorRisk（风险情报）。
+
+| Chokepoint | 战略重要性 |
+|------------|---------------------|
+| **Strait of Hormuz** | 全球 20% 的石油过境；伊朗控制 |
+| **Suez Canal** | 欧亚航运；单点故障 |
+| **Strait of Malacca** | 亚太主要石油路线 |
+| **Bab el-Mandeb** | 红海通道；也门/胡塞活动 |
+| **Panama Canal** | 美洲东西向通道 |
+| **Taiwan Strait** | 半导体供应链；PLA 活动 |
+| **Cape of Good Hope** | Suez 的 VLCC 备选路线 |
+| **Strait of Gibraltar** | 大西洋-地中海门户；NATO chokepoint |
+| **Bosporus Strait** | 黑海通道；含 Dardanelles corridor；蒙特勒公约 |
+| **Korea Strait** | 日本-韩国贸易；东亚最繁忙航道 |
+| **Dover Strait** | 全球最繁忙航运通道 |
+| **Kerch Strait** | 俄罗斯控制；乌克兰经 Azov 的粮食出口受限 |
+| **Lombok Strait** | 适合大型油轮的马六甲备选路线 |
+
+每个 chokepoint 卡片都会显示实时通行量（油轮 vs 散货）、周环比变化，以及使用 TradingView lightweight-charts 渲染的 180 天可展开时间序列图表。
+
+## 密度分析
+
+船舶位置会聚合到 2 度网格中，以计算交通密度。每个单元跟踪：
+
+- 当前船舶数
+- 历史基线（30 分钟滚动窗口）
+- 相对基线的变化百分比
+
+密度变化超过 +/-30% 会触发告警，表示可能出现拥堵、改道或封锁。
+
+## 暗船检测
+
+系统会监控 AIS 空洞，也就是停止发送位置的船舶。监控区域内若 AIS 空洞超过 60 分钟，可能意味着：
+
+- 制裁规避（船对船转运）
+- 非法捕捞
+- 军事活动
+- 设备故障
+
+重新出现的船舶会在整个会话中被标记。
+
+## WebSocket 架构
+
+AIS 数据通过 WebSocket relay 流式传输，以实现实时更新而无需轮询：
+
+```
+AISStream -> WebSocket Relay -> Browser
+              (ws://relay)
+```
+
+连接会在断开时自动重连，退避时间为 30 秒。当 Ships 图层被禁用时，WebSocket 会断开以节省资源。
+
+## Railway Relay 架构
+
+某些 API 会屏蔽来自云提供商（Vercel、AWS、Cloudflare Workers）的请求。Railway relay server 提供认证访问：
+
+```
+Browser -> Railway Relay -> External APIs
+           (Node.js)      (AIS, OpenSky, RSS)
+```
+
+**Relay Functions**：
+
+| 端点 | 用途 | 认证 |
+|----------|---------|----------|
+| `/` (WebSocket) | AIS 船舶流 | AISStream API key |
+| `/opensky` | 军机 | OAuth2 Bearer token |
+| `/rss` | 被屏蔽的 RSS feed | 无（伪装 user-agent） |
+| `/health` | 状态检查 | 无 |
+
+**环境变量**（Railway）：
+
+- `AISSTREAM_API_KEY` - AIS 数据访问
+- `OPENSKY_CLIENT_ID` - OAuth2 client ID
+- `OPENSKY_CLIENT_SECRET` - OAuth2 client secret
+
+**为什么用 Railway？**
+
+- 住宅 IP 段（不像云提供商那样容易被屏蔽）
+- 支持 WebSocket，适合持久连接
+- 全球边缘部署，延迟低
+- 免费层足够支撑中等流量
+
+relay 是无状态的；它只负责认证和代理请求。所有缓存和处理都发生在客户端或 Vercel Edge Functions 中。
+
+另请参见 [Finance Data - Chokepoints](/finance-data) 了解中断评分方法。

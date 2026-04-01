@@ -1,0 +1,162 @@
+---
+title: "Premium Finance 搜索层"
+description: "用于 premium finance 的额外股票新闻定向搜索层。"
+---
+
+<p align="center">
+  <a href="./premium-finance-search.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./premium-finance-search_CN.mdx"><strong>中文</strong></a>
+</p>
+
+本文档说明 premium finance 使用的**额外**股票新闻定向搜索层。
+
+它是故意独立于核心 `premium-finance` 架构之外的。
+
+核心 premium finance 即使没有这一层也能运行。搜索层的存在，是为了提升定向 ticker 分析时的新闻发现质量，尤其是在仅靠 feed 覆盖不够时。
+
+请参见核心系统文档 [PREMIUM_FINANCE.md](/premium-finance)。
+
+## 为什么需要它
+
+World Monitor 本质上是 feed-first：
+
+- 精选 RSS feeds
+- digest 聚合
+- Google News RSS 兜底
+
+而迁移自的源仓库使用了更广的搜索提供方层来查找股票新闻。这对以下场景更有效：
+
+- 单一标的的 premium 分析
+- 覆盖度较低的小众 ticker
+- feed 目录里不够明显的近期公司动态
+
+这一层正是为了填补这个缺口，而不是替代项目整体的 feed 架构。
+
+## 提供方顺序
+
+当前 provider 链：
+
+1. `Tavily`
+2. `Brave`
+3. `SerpAPI`
+4. Google News RSS fallback
+
+`Bocha` 没有被纳入，因为当前 premium-finance 方向并不是面向中国市场。
+
+## 实现
+
+主要实现：
+
+- [stock-news-search.ts](https://github.com/koala73/worldmonitor/blob/main/server/worldmonitor/market/v1/stock-news-search.ts)
+
+集成点：
+
+- [analyze-stock.ts](https://github.com/koala73/worldmonitor/blob/main/server/worldmonitor/market/v1/analyze-stock.ts)
+
+该 helper 会：
+
+- 构建规范化股票新闻查询
+- 按优先级依次尝试 provider
+- 在配置好的 key 之间轮转
+- 在内存中追踪临时 provider/key 失败
+- 将 provider 返回值规范化为 `StockAnalysisHeadline`
+- 将搜索结果缓存到 Redis
+- 当 provider 搜索不可用时回退到 Google News RSS
+
+## 查询策略
+
+当前查询格式刻意沿用了源仓库中的外股新闻风格：
+
+`<Company Name> <SYMBOL> stock latest news`
+
+示例：
+
+- `Apple AAPL stock latest news`
+- `Microsoft MSFT stock latest news`
+
+搜索新鲜度会动态调整：
+
+- 周一：3 天
+- 周六/周日：2 天
+- 周二到周五：1 天
+
+这样可以适配周末信息空档。
+
+## 运行时密钥
+
+搜索层使用运行时管理的 secret keys，因此能和项目其他桌面/网页 secret 模型保持一致。
+
+配置项：
+
+- `TAVILY_API_KEYS`
+- `BRAVE_API_KEYS`
+- `SERPAPI_API_KEYS`
+
+这些值通过以下文件接入：
+
+- [runtime-config.ts](https://github.com/koala73/worldmonitor/blob/main/src/services/runtime-config.ts)
+- [settings-constants.ts](https://github.com/koala73/worldmonitor/blob/main/src/services/settings-constants.ts)
+- [main.rs](https://github.com/koala73/worldmonitor/blob/main/src-tauri/src/main.rs)
+- [local-api-server.mjs](https://github.com/koala73/worldmonitor/blob/main/src-tauri/sidecar/local-api-server.mjs)
+
+值可以是多 key 字符串，按逗号或换行拆分。
+
+## 缓存
+
+搜索结果会以 query 派生 key 缓存在 Redis 中。缓存 key 包含：
+
+- symbol
+- 动态天数窗口
+- 结果数量
+- 哈希后的 query
+
+这样可以避免多个用户同时请求同一股票分析时重复调用 provider。
+
+缓存寿命故意较短，因为基于搜索的金融新闻很快会过期。
+
+## 回退行为
+
+如果 `Tavily` 失败，就尝试 `Brave`。
+
+如果 `Brave` 失败，就尝试 `SerpAPI`。
+
+如果 provider-backed 搜索不可用、结果为空或未配置，则回退到 Google News RSS。
+
+这意味着：
+
+- premium 股票分析不会硬依赖付费搜索 provider
+- provider key 影响覆盖率，而不是功能可用性
+
+## 为什么它是独立层
+
+这一层不是股票分析引擎本身。
+
+它应被视为：
+
+- 定向新闻增强
+- 覆盖质量升级
+- provider-backed precision lookup layer
+
+它**不**应被视为：
+
+- 市场/新闻摄取的唯一标准架构
+- feed digest 聚合的替代品
+- premium finance 持久化的唯一真相来源
+
+这种分离能保持系统更易理解：
+
+- 核心金融产品逻辑保持稳定
+- 搜索增强层可以独立演进
+
+## 已知边界
+
+当前实现还没有暴露独立的公开股票新闻搜索 RPC。
+
+目前它只是 premium 股票分析使用的内部后端 helper。这是刻意设计的：
+
+- 保持 surface area 小
+- 避免过早增加 UI/API 产品面
+- 让 provider 行为先演化，再冻结成独立外部契约
+
+如果以后需要，这个 helper 可以升级成一等市场 RPC。
+

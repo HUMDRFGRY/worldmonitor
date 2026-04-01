@@ -1,0 +1,149 @@
+---
+title: "认证与面板权限控制"
+description: "WorldMonitor 中用户认证、高级面板权限控制，以及服务端会话强制执行的工作方式。"
+---
+
+<p align="center">
+  <a href="./authentication.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./authentication_CN.mdx"><strong>中文</strong></a>
+</p>
+
+WorldMonitor 使用 [Clerk](https://clerk.com) 进行认证。认证系统会通过登录状态和套餐等级检查，将高级面板限制在授权用户范围内，并通过本地 JWT 校验在服务端 API 端点上强制执行基于会话的访问控制。
+
+---
+
+## 认证栈
+
+| 层 | 技术 | 用途 |
+|-------|---------|---------|
+| 认证提供方 | Clerk | 登录（邮箱、社交账号）、会话管理、托管 UI |
+| JWT 校验 | jose + Clerk JWKS | 服务端 bearer token 校验（无需回源） |
+| Convex 集成 | Clerk JWT 模板（`convex`） | 使用 `applicationID: "convex"` 的 Convex 认证 |
+| 认证状态 | `auth-state.ts` | 响应式浏览器认证状态、角色缓存 |
+
+### 关键文件
+
+| 文件 | 用途 |
+|------|---------|
+| `convex/auth.config.ts` | Convex 认证提供方配置 - Clerk JWT issuer + applicationID |
+| `src/services/clerk.ts` | Clerk 实例初始化，`getClerkToken()` 用于 Convex JWT 模板 |
+| `src/services/auth-state.ts` | 响应式认证状态、角色获取、会话 hydration |
+| `src/components/AuthHeaderWidget.ts` | 头部登录按钮、Clerk UserButton |
+| `server/auth-session.ts` | 使用 jose + 缓存 JWKS 进行服务端 JWT 校验 |
+
+---
+
+## 面板权限控制
+
+在用户满足访问要求之前，高级面板会显示 CTA 覆盖层，而不是实际内容。
+
+### 权限原因
+
+| 原因 | 用户看到什么 | 解决方式 |
+|--------|-------------------|---------|
+| `ANONYMOUS` | "Sign In to Unlock" | 通过 Clerk 登录 |
+| `FREE_TIER` | "Upgrade to Pro" | 升级订阅 |
+| `NONE` | 正常面板内容 | 已解锁 |
+
+### 如何配置哪些面板是高级面板
+
+有三个文件控制权限控制。**新增或移除高级面板时，这三个文件都必须保持同步。**
+
+#### 1. 面板配置 - `src/config/panels.ts`
+
+在相关变体的面板条目里添加 `premium: 'locked'`：
+
+```ts
+// In FULL_PANELS, FINANCE_PANELS, etc.
+'my-panel': { name: 'My Panel', enabled: true, premium: 'locked' }
+```
+
+#### 2. 客户端权限集合 - `src/app/panel-layout.ts`
+
+把面板 key 加入 `WEB_PREMIUM_PANELS`：
+
+```ts
+const WEB_PREMIUM_PANELS = new Set([
+  'stock-analysis',
+  'stock-backtest',
+  'daily-market-brief',
+  'my-panel',  // <-- add here
+]);
+```
+
+这个集合驱动响应式 UI 权限控制 - 当认证状态变化时，这个集合里的面板会被检查，并据此显示或隐藏 CTA。
+
+#### 3. 服务端 API 强制执行（如果该面板会调用高级 API）
+
+**客户端 token 注入** - `src/services/runtime.ts`（`WEB_PREMIUM_API_PATHS`）：
+
+```ts
+const WEB_PREMIUM_API_PATHS = new Set([
+  '/api/market/v1/analyze-stock',
+  '/api/market/v1/get-stock-analysis-history',
+  '/api/market/v1/backtest-stock',
+  '/api/market/v1/list-stored-stock-backtests',
+  '/api/my-domain/v1/my-endpoint',  // <-- add here
+]);
+```
+
+当 fetch 请求匹配到这个集合里的路径，并且用户已有 Clerk 会话时，客户端会自动注入 `Authorization: Bearer <token>`。
+
+**服务端网关** - `server/gateway.ts`（`PREMIUM_RPC_PATHS`）：
+
+```ts
+const PREMIUM_RPC_PATHS = new Set([
+  '/api/market/v1/analyze-stock',
+  '/api/market/v1/get-stock-analysis-history',
+  '/api/market/v1/backtest-stock',
+  '/api/market/v1/list-stored-stock-backtests',
+  '/api/my-domain/v1/my-endpoint',  // <-- add here
+]);
+```
+
+网关通过本地 JWKS 校验（jose）验证 bearer token，并检查 `session.role === 'pro'`。如果用户不是 pro，则返回 403。
+
+### 当前已加锁的面板
+
+| 面板 | 变体 | 权限类型 |
+|-------|----------|-----------|
+| `stock-analysis` | full, finance | `locked`（web） |
+| `stock-backtest` | full, finance | `locked`（web） |
+| `daily-market-brief` | full, finance | `locked`（web） |
+
+### 桌面端行为
+
+带有有效 `WORLDMONITOR_API_KEY` 的桌面用户会绕过所有面板权限控制。现有 API key 流程不受影响 - bearer token 是**第二条认证路径**，不是替代方案。
+
+---
+
+## 服务端会话强制执行
+
+Vercel API 网关接受两种高级端点认证方式：
+
+1. **静态 API key** - `X-WorldMonitor-Key` header（现有流程，不变）
+2. **Bearer token** - `Authorization: Bearer <clerk_jwt>`（用于 Web 用户）
+
+网关会先尝试 API key。如果高级端点上的 API key 校验失败，它会回退到通过 `server/auth-session.ts` 进行的 bearer token 验证。JWT 会基于以下内容进行校验：
+- **Issuer**：`CLERK_JWT_ISSUER_DOMAIN`
+- **Audience**：`convex`（与 Clerk JWT 模板匹配）
+- **Signature**：通过 Clerk 公布的 JWKS 使用 RSA256
+
+非高级端点对 Web 来源不需要任何认证。
+
+---
+
+## 环境变量
+
+| 变量 | 所在位置 | 用途 |
+|----------|-------|---------|
+| `CLERK_JWT_ISSUER_DOMAIN` | Convex + Vercel | 用于 JWT 校验的 Clerk issuer 域名 |
+| `VITE_CLERK_PUBLISHABLE_KEY` | Vercel | 客户端 Clerk publishable key |
+
+---
+
+## 用户角色
+
+用户角色（`pro` / `free`）作为 Clerk JWT 中的 `plan` claim 存储。服务端会从已验证的 token payload 中提取它。未知或缺失的 `plan` 值会默认变成 `free`（fail closed - 永远不会默认为 pro）。
+
+在客户端，`getAuthState().user?.role` 会暴露该角色。`isProUser()` 和 `hasPremiumAccess()` 都会结合这项检查以及旧的 API key 门禁。

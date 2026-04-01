@@ -1,0 +1,225 @@
+---
+title: "AI 情报"
+description: "World Monitor 使用的 LLM 链、RAG 管线、威胁分类、推断引擎和浏览器端 ML。"
+---
+
+<p align="center">
+  <a href="./ai-intelligence.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./ai-intelligence_CN.mdx"><strong>中文</strong></a>
+</p>
+
+## AI 摘要
+
+### AI 摘要链
+
+World Brief 由一个 4 层 provider 链生成，优先使用本地算力，随后回退到云 API，最后才降级到浏览器端推理：
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   Summarization Request                        │
+│  (headlines deduplicated by Jaccard similarity > 0.6)          │
+└───────────────────────┬─────────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────┐    timeout/error
+│  Tier 1: Ollama / LM Studio    │──────────────┐
+│  Local endpoint, no cloud       │               │
+│  Auto-discovered model          │               │
+└─────────────────────────────────┘               │
+                                                  ▼
+                                   ┌─────────────────────────────┐    timeout/error
+                                   │  Tier 2: Groq               │──────────────┐
+                                   │  Llama 3.1 8B, temp 0.3     │               │
+                                   │  Fast cloud inference        │               │
+                                   └─────────────────────────────┘               │
+                                                                                 ▼
+                                                                  ┌─────────────────────────────┐    timeout/error
+                                                                  │  Tier 3: OpenRouter          │──────────────┐
+                                                                  │  Multi-model fallback        │               │
+                                                                  └─────────────────────────────┘               │
+                                                                                                                ▼
+                                                                                                 ┌──────────────────────────┐
+                                                                                                 │  Tier 4: Browser T5      │
+                                                                                                 │  Transformers.js (ONNX)  │
+                                                                                                 │  No network required     │
+                                                                                                 └──────────────────────────┘
+```
+
+三个 API 层（Ollama、Groq、OpenRouter）共用一个统一的 handler factory（`_summarize-handler.js`），并提供一致的行为：
+
+- **标题去重** - 在发送给任何 LLM 之前，会基于词重叠相似度成对比较标题。近重复（重叠 >60%）会被合并，减少 20–40% 的 prompt，并防止 LLM 把 token 花在重复新闻上
+- **变体感知提示** - 系统 prompt 会根据当前仪表盘变体自适应。地缘政治摘要强调冲突升级和外交变化；技术摘要聚焦融资轮和 AI 突破；金融摘要突出市场波动和央行信号
+- **语言感知输出** - 当 UI 语言不是英语时，prompt 会要求 LLM 用该语言生成摘要
+- **Redis 去重** - 摘要会使用复合 key（`summary:v3:{mode}:{variant}:{lang}:{hash}`）缓存，因此同一批 headlines 被 1,000 个并发用户查看时，只会触发一次 LLM 调用。缓存 TTL 为 24 小时
+- **优雅回退** - 如果 provider 返回 `{fallback: true}`（缺少 API key 或端点不可达），链会静默进入下一层。进度回调会更新 UI，显示正在尝试的 provider
+
+Ollama 层通过与 OpenAI 兼容的 `/v1/chat/completions` 端点通信，因此兼容任何实现该标准的本地推理服务器（Ollama、LM Studio、llama.cpp server、vLLM 等）。
+
+### 国家简报页面
+
+点击地图上的任意国家都会打开一个全页情报档案 - 这是对该国家所有情报模块的单屏综合。简报采用双栏布局：
+
+**左栏**：
+
+- **Instability Index** - 动画 SVG 分数环（0–100），带四个组件条（Unrest、Conflict、Security、Information）、严重度徽标和趋势指示
+- **Intelligence Brief** - AI 生成的分析（根据配置使用 Ollama 本地 / Groq / OpenRouter），带内联引用锚点 `[1]`–`[8]`，点击即可滚动到对应新闻来源
+- **Top News** - 与该国家最相关的 8 条标题，按威胁级别着色，并带来源与时间信息
+
+**右栏**：
+
+- **Active Signals** - 针对抗议、军机、海军舰船、互联网中断、地震、流离失所、气候压力、冲突事件以及该国股票指数（1 周变化）的实时 chip 指示器
+- **7-Day Timeline** - D3.js 渲染的事件图表，包含 4 条严重度分栏（protest、conflict、natural、military），带交互式 tooltip 和响应式缩放
+- **Prediction Markets** - 按成交量排序的前三个 Polymarket 合约，带概率条和外部链接
+- **Infrastructure Exposure** - 距离国家质心 600km 范围内的管道、海底电缆、数据中心、军事基地、核设施和港口，并按距离排序
+
+**标题相关性过滤**：每个国家都有一个别名映射（例如 `US → ["united states", "american", "washington", "pentagon", "biden", "trump"]`）。标题会通过负匹配算法进行过滤 - 如果另一个国家的别名在标题里比目标国家别名更早出现，就会排除该标题。这样可以防止交叉污染（例如一条关于委内瑞拉、但提到 “Washington sanctions” 的标题出现在美国简报里）。
+
+**导出选项**：简报可导出为 JSON（包含所有分数、信号和标题的结构化数据）、CSV（扁平表格格式）或 PNG 图片。打印按钮会调用浏览器原生打印对话框进行 PDF 导出。
+
+### 本地优先国家检测
+
+地图点击通过本地地理服务解析国家，而不是依赖网络反向地理编码（Nominatim）。系统会加载一个包含约 200 个国家边界多边形的 GeoJSON 文件，并构建索引化的空间查找：
+
+1. **边界框预过滤** - 每个国家的 polygon(s) 都会被包裹在一个边界框（`[minLon, minLat, maxLon, maxLat]`）中。位于 bbox 之外的点会在无需多边形相交测试的情况下被拒绝。
+2. **射线投射算法** - 对于 bbox 内的点，会从该点沿正 x 轴发射一条射线。多边形边交点数决定点是在内还是在外（奇数 = 内）。边界情况会被处理：落在边界线上的点返回 `true`，多边形孔洞会被扣除（位于外环内但也位于孔洞中的点会被排除）。
+3. **MultiPolygon 支持** - 像美国（阿拉斯加和夏威夷）或印度尼西亚（大量岛屿）这样的不连续领土国家，会使用 MultiPolygon 几何，每个 polygon 独立测试。
+
+这种方法可以在浏览器中实现亚毫秒级国家检测，不需要网络延迟。地理数据会在应用启动时预加载，并在当前会话中缓存。对于 GeoJSON 中没有的国家（极少），系统会回退到硬编码矩形边界框，最后才回退到网络反向地理编码。
+
+## 推断与预测
+
+### AI 推断与预测
+
+Deduction Panel 是一个交互式 AI 地缘政治分析工具，可基于实时情报数据生成近未来时间线预测。
+
+**请求流水线**：
+
+1. 分析人员输入自由文本查询（例如“接下来 24 小时内中东会发生什么？”）以及可选的地理上下文字段
+2. 在提交前，`buildNewsContext()` 会从实时 feed 中拉取最近 15 条 `NewsItem` 标题，并把它们作为结构化上下文前置（`"Recent News:\n- Headline (Source)"`） - 确保 LLM 始终拥有当前态势感知
+3. 查询会发送到 `deductSituation` RPC endpoint，该端点调用 `callLlm()`，并使用 provider fallback 链（Groq、OpenRouter，或通过 `LLM_API_URL`/`LLM_API_KEY`/`LLM_MODEL` 环境变量提供的任何 OpenAI 兼容端点），同时系统 prompt 会要求它扮演“高级地缘政治情报分析师和预测者”
+4. temperature 设为 0.3（较低，保证分析一致性），最多 1,500 tokens。作为分层防御的一部分，chain-of-thought `think` 标签会被剥离
+5. 结果会按 `deduct:situation:v1:{hash(query|geoContext)}` 缓存在 Redis 1 小时 - 相同查询会立即从缓存返回
+
+**跨面板集成**：任何面板都可以分发一个 `wm:deduct-context` 自定义 DOM 事件，携带 `{ query, geoContext, autoSubmit }`，从而预填 Deduction Panel 并可选自动提交。这让仪表盘任意位置都能触发上下文预测 - 例如点击战区态势卡片上的“Analyze”就能自动触发区域推断。5 秒冷却可防止快速重复提交。
+
+该面板采用 lazy-load（`import()`）以在未访问时不把 DOMPurify 打进主 bundle，从而保持 web bundle 轻量。
+
+## 记忆与分类
+
+### 客户端标题记忆（RAG）
+
+Headline Memory 系统提供浏览器本地的检索增强生成（RAG） - 一个完全运行在用户设备上的新闻标题语义索引。
+
+**摄取流水线**：
+
+```
+RSS Feed Parse → isHeadlineMemoryEnabled()? → ML Worker (Web Worker)
+                                                    │
+                                          ┌─────────┴──────────┐
+                                          │  ONNX Embeddings   │
+                                          │  all-MiniLM-L6-v2  │
+                                          │  384-dim float32   │
+                                          └─────────┬──────────┘
+                                                    │
+                                          ┌─────────┴──────────┐
+                                          │  IndexedDB Store   │
+                                          │  5,000 vector cap  │
+                                          │  LRU by ingestAt   │
+                                          └────────────────────┘
+```
+
+1. 每次 RSS feed 抓取与解析后，如果启用了 Headline Memory 且 embeddings 模型已加载，每条标题的 title、发布日期、来源、URL 和地点标签都会发送给 ML Worker
+2. Worker 会清理文本（去除控制字符、截断到 200 字符），通过 ONNX pipeline 进行 embedding（`pooling: 'mean', normalize: true`），并按内容 hash 去重
+3. 向量会通过串行化的 promise 队列写入 IndexedDB（防止并发事务冲突）。当超过 5,000 向量上限时，会按 `ingestedAt` 淘汰最旧的条目
+
+**搜索**：查询会使用同一模型做 embedding，然后通过完整游标扫描计算与所有已存储向量的余弦相似度。结果按得分排序，限制为 `topK`（1–20），并通过 `minScore`（0–1）过滤。可同时搜索多个查询字符串（最多 5 个），用于排名时取每条记录在所有查询中的最高分。
+
+**按需启用机制**：该设置默认为 `false`（存储为 localStorage 中的 `wm-headline-memory`）。启用后会触发 `mlWorker.init()` → `loadModel('embeddings')`。禁用后会卸载模型，并在没有其他 ML 功能活动时可选地终止整个 worker。`ai-flow-changed` CustomEvent 会把开关变化传播给所有相关组件。
+
+### 威胁分类流水线
+
+每条新闻都会经过三阶段分类流水线：
+
+1. **关键词分类器**（即时，`source: 'keyword'`） - 在约 120 个按严重度层级（critical → high → medium → low → info）和 14 个事件类别（conflict、protest、disaster、diplomatic、economic、terrorism、cyber、health、environmental、military、crime、infrastructure、tech、general）组织的威胁关键词中进行模式匹配。关键词使用单词边界 regex 匹配以防止误报（例如 "war" 不会匹配 "award"）。每次匹配都会返回严重度、类别和置信分数。变体专属关键词集可以确保 tech 变体不会在非地缘政治上下文中把 "sanctions" 误判为威胁。
+
+2. **浏览器端 ML**（异步，`source: 'ml'`） - Transformers.js 直接在浏览器中运行 NER、情感分析和主题分类，无需服务器依赖。它提供第二个分类意见，而不需要任何 API 调用。
+
+3. **LLM 分类器**（批量异步，`source: 'llm'`） - headlines 会被收集到批处理队列中，并通过 sebuf proto client 以并行 `classifyEvent` RPC 发送出去。每个 RPC 都会调用配置好的 LLM provider（Groq Llama 3.1 8B，temperature 0，或者用于本地推理的 Ollama）。结果会按 headline hash 缓存在 Redis（24h TTL）。当出现 500 系列错误时，LLM 分类器会自动暂停队列，以避免浪费 API 配额，并在指数退避后恢复。LLM 结果返回时，只有在其置信度更高时才会覆盖关键词结果。
+
+这种混合方式意味着 UI 永远不会被 AI 阻塞 - 用户会立即看到关键词结果，而 ML 和 LLM 的修正会在几秒内到达，并对后续所有访问者持续生效。每次分类都会携带 `source` 标签（`keyword`、`ml` 或 `llm`），以便下游消费者按置信度加权。
+
+## 告警
+
+### 突发新闻告警流水线
+
+仪表盘会监控五个独立的告警来源，并通过分层去重、冷却和来源质量门控把它们融合成统一的突发新闻流：
+
+| 来源 | 触发条件 | 示例 |
+| -------------------- | -------------------------------------------------------------- | -------------------------------------------- |
+| **RSS alert** | 新闻项带 `isAlert: true` 且威胁级别为 critical/high | Reuters 快讯：导弹袭击已确认 |
+| **Keyword spike** | 趋势关键词超过 spike 阈值 | “nuclear” 在 2 小时内跨 8+ 个 feed 激增 |
+| **Hotspot escalation** | 热点升级分数超过 critical 阈值 | 台湾海峡紧张度超过 80/100 |
+| **Military surge** | 战区态势评估检测到打击编组 | MENA 同时出现 tanker + AWACS + fighters |
+| **OREF siren** | 以色列 Home Front Command 发出火箭/导弹来袭警报 | 北以色列检测到火箭齐射 |
+
+**降噪保护**：
+
+- **按事件去重** - 每个告警都按内容 hash 做 key；同一事件的重复告警会在 30 分钟内被抑制
+- **全局冷却** - 任意告警触发后，60 秒全局冷却可防止短时间连续通知
+- **新鲜度门控** - 处理时超过 15 分钟的条目会被静默丢弃，防止重连后旧事件生成告警
+- **来源层级门控** - Tier 3+ 来源（小众媒体、聚合源）必须有 LLM 确认分类（`threat.source !== 'keyword'`）才能触发告警；Tier 1–2 来源可绕过该门控
+- **用户敏感度控制** - 可配置为 `critical-only`（只触发 critical）或 `critical-and-high`（critical + high）
+
+当告警通过所有门控后，系统会在 `document` 上分发一个 `wm:breaking-news` CustomEvent，Breaking News Banner 会据此显示一个持续的屏幕顶部通知。浏览器 Notification API 弹窗和音效提示也可以作为用户设置打开。点击 banner 会滚动到源头 RSS 面板，并应用 1.5 秒闪烁高亮动画。
+
+## 浏览器端 ML
+
+### 浏览器端 ML 流水线
+
+仪表盘通过 Transformers.js 在浏览器中运行完整 ML 流水线，核心情报无需服务器依赖。这在移动设备上会自动禁用，以节省内存。
+
+| 能力 | 模型 | 用途 |
+| ---------------------------- | ------------------- | ------------------------------------------------- |
+| **Text embeddings** | sentence-similarity | 新闻标题的语义聚类 |
+| **Sequence classification** | threat-classifier | 威胁严重度和类别检测 |
+| **Summarization** | T5-small | 当 Ollama、Groq 和 OpenRouter 都不可用时的最后回退 |
+| **Named Entity Recognition** | NER pipeline | 国家、组织和领导人提取 |
+
+**混合聚类** 将快速的 Jaccard 相似度（n-gram 重叠，阈值 0.4）与 ML 语义相似度（余弦相似度，阈值 0.78）结合。Jaccard 会在每次刷新时立即运行；当 ML worker 加载后，语义修正会把文本上不同但语义相同的聚类合并（例如 “NATO expands missile shield” 和 “Alliance deploys new air defense systems”）。
+
+会按聚类追踪新闻速度 - 当多个 Tier 1–2 来源在短时间内就同一事件达成收敛时，该聚类会被标记为突发告警，并把 `sourcesPerHour` 作为速度指标。
+
+---
+
+## 浏览器端机器学习
+
+为了离线韧性和降低 API 成本，系统包含基于 ONNX Runtime Web 的浏览器端 ML 能力。
+
+### 可用模型
+
+| 模型 | 任务 | 大小 | 使用场景 |
+|-------|------|------|----------|
+| **T5-small** | 文本摘要 | ~60MB | 离线简报生成 |
+| **DistilBERT** | 情感分析 | ~67MB | 新闻语气分类 |
+
+### 回退策略
+
+当云 API 不可用时，浏览器 ML 会作为最后回退：
+
+```
+User requests summary
+    ↓
+1. Try Groq API (fast, free tier)
+    ↓ (rate limited or error)
+2. Try OpenRouter API (fallback provider)
+    ↓ (unavailable)
+3. Use Browser T5 (offline, always available)
+```
+
+### 懒加载
+
+模型按需加载，以尽量减少初始页面加载：
+
+- 模型只会在第一次需要时下载
+- 进度指示器会显示下载状态
+- 一旦缓存下来，模型就会从 IndexedDB 立即加载

@@ -1,0 +1,186 @@
+---
+title: "国家不稳定指数"
+description: "针对 24 个具有战略意义的国家进行实时稳定性评分，将动荡、安全和信息信号合成为动态不稳定指标。"
+---
+
+<p align="center">
+  <a href="./country-instability-index.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./country-instability-index_CN.mdx"><strong>中文</strong></a>
+</p>
+
+国家不稳定指数会为具有战略意义的国家维护一个实时不稳定性分数。它不像静态风险评级，而是根据多个输入流动态反映当前状况。
+
+## 监控国家（一线）
+
+| 地区 | 国家 |
+|--------|-----------|
+| **Americas** | United States、Venezuela、Brazil、Mexico、Cuba |
+| **Europe** | Germany、France、United Kingdom、Poland |
+| **Eastern Europe** | Russia、Ukraine |
+| **Middle East** | Iran、Israel、Saudi Arabia、United Arab Emirates、Turkey、Syria、Yemen |
+| **Asia-Pacific** | China、Taiwan、North Korea、India、Pakistan、Myanmar |
+
+## 三个组件分数
+
+每个国家的 CII 都由三个加权组件计算：
+
+| 组件 | 权重 | 数据源 | 衡量内容 |
+|-----------|--------|--------------|------------------|
+| **Unrest** | 40% | ACLED 抗议、GDELT 事件 | 民众动荡强度、死亡人数、事件严重度 |
+| **Security** | 30% | 军机、海军舰船 | 异常军事活动模式 |
+| **Information** | 30% | 新闻速度、告警聚类 | 媒体关注强度和加速度 |
+
+## 评分算法
+
+```
+Unrest Score:
+  base = min(50, protest_count × 8)
+  fatality_boost = min(30, total_fatalities × 5)
+  severity_boost = min(20, high_severity_count × 10)
+  unrest = min(100, base + fatality_boost + severity_boost)
+
+Security Score:
+  flight_score = min(50, military_flights × 3)
+  vessel_score = min(30, naval_vessels × 5)
+  security = min(100, flight_score + vessel_score)
+
+Information Score:
+  base = min(40, news_count × 5)
+  velocity_boost = min(40, avg_velocity × 10)
+  alert_boost = 20 if any_alert else 0
+  information = min(100, base + velocity_boost + alert_boost)
+
+Final CII = round(unrest × 0.4 + security × 0.3 + information × 0.3)
+```
+
+## 评分偏差防护
+
+原始新闻量会造成自然偏差：英语媒体会比冲突区更多报道美国、英国和西欧。如果不修正，稳定民主国家会一直比真实危机地区得分更高。
+
+### 对高流量国家做对数缩放
+
+媒体覆盖量高的国家会对其动荡和信息分数施加对数衰减：
+
+```
+if (newsVolume > threshold):
+  dampingFactor = 1 / (1 + log10(newsVolume / threshold))
+  score = rawScore × dampingFactor
+```
+
+这样可确保“美国收到 50 条关于常规政治活动的新闻”不会超过“乌克兰收到 10 条关于实际战斗的新闻”。
+
+### 冲突区下限分数
+
+活跃冲突区有最低分下限，避免在数据缺口或覆盖稀少时期被显示得过于稳定：
+
+| 国家 | 下限 | 理由 |
+|---------|-------|-----------|
+| Ukraine | 55 | 与俄罗斯的活跃战争 |
+| Syria | 50 | 持续内战 |
+| Yemen | 50 | 持续内战 |
+| Myanmar | 45 | 军事政变、内战 |
+| Israel | 45 | 活跃的加沙冲突 |
+
+这个下限会在标准计算之后应用。如果计算得分高于下限，就采用计算值。这样既能避免错误的 “all clear” 信号，也能保留对实际升级的敏感度。
+
+## 不稳定级别
+
+| 级别 | 分数范围 | 视觉 | 含义 |
+|-------|-------------|--------|---------|
+| **Critical** | 81-100 | 红色 | 活跃危机或重大升级 |
+| **High** | 66-80 | 橙色 | 显著不稳定，需要密切监控 |
+| **Elevated** | 51-65 | 黄色 | 高于正常的活动模式 |
+| **Normal** | 31-50 | 灰色 | 基线地缘政治活动 |
+| **Low** | 0-30 | 绿色 | 异常平静的时期 |
+
+## 趋势检测
+
+CII 会追踪 24 小时变化，以识别走势：
+
+- **Rising**：分数增加 ≥5 分（局势升级）
+- **Stable**：变化在 ±5 分以内（平稳状态）
+- **Falling**：分数下降 ≥5 分（局势缓和）
+
+## 情境性加成
+
+除了基础组件分数外，若干情境因素还可以为国家 CII 加分（总共最多额外 23 分）：
+
+| 加成类型 | 最高分 | 条件 | 目的 |
+|------------|------------|-----------|---------|
+| **Hotspot Activity** | 10 | 事件发生在定义好的热点附近 | 捕捉局部升级 |
+| **News Urgency** | 5 | 信息组件 ≥50 | 高媒体关注指标 |
+| **Focal Point** | 8 | 国家上检测到 AI focal point | 多源收敛指标 |
+
+**Hotspot 加成计算**：
+
+- Hotspot activity（0-100）先乘以 1.5，再封顶 10
+- 对没有相关 hotspot 活动的国家不加分
+
+**News Urgency 加成层级**：
+
+- Information ≥70：+5 分
+- Information ≥50：+3 分
+- Information <50：+0 分
+
+**Focal Point 加成层级**：
+
+- Critical urgency：+8 分
+- Elevated urgency：+4 分
+- Normal urgency：+0 分
+
+这些加成只在有相互印证证据时才会提升分数。国家要达到极端等级，必须同时有高基础分和情境信号。
+
+完整算法见 [Geographic Convergence](/geographic-convergence)。
+
+## 服务端预计算
+
+为了消除 “冷启动” 问题（新用户在 Learning Mode warmup 期间会看到空白数据），CII 分数会通过 `/api/risk-scores` 端点**在服务端预计算**。详细信息见 [Server-Side Risk Score API](/strategic-risk#server-side-risk-score-api) 小节。
+
+## Learning Mode（15 分钟预热）
+
+在仪表盘启动时，CII 系统会进入 **Learning Mode**，即 15 分钟的校准期。在这段时间里，分数会被计算，但告警会被抑制。这可以避免系统在建立基线时出现大量误报。
+
+**注意**：服务端预计算现在会立即向新用户提供分数。Learning Mode 主要影响客户端的动态调整和告警生成，而不是初始分数展示。
+
+**为什么是 15 分钟？** 真实测试表明，CII 分数会在大约 10-20 分钟的数据收集后稳定。15 分钟窗口足以让：
+
+- 所有数据源完成多轮刷新
+- 趋势检测建立方向（rising/stable/falling）
+- 跨来源相关性完成偏差归一化
+
+### 视觉指示器
+
+在 Learning Mode 期间，仪表盘会提供清晰的视觉反馈：
+
+| 位置 | 指示器 |
+|----------|-----------|
+| **CII Panel** | 带进度条和倒计时的黄色横幅 |
+| **Strategic Risk Overview** | “Learning Mode - Xm until reliable” 状态 |
+| **Score Display** | 以 60% 不透明度显示分数（变暗） |
+
+### 行为
+
+```
+Minutes 0-15: Learning Mode Active
+  - CII scores calculated and displayed (dimmed)
+  - Trend detection active (stores baseline)
+  - All CII-related alerts suppressed
+  - Progress bar fills as time elapses
+
+After 15 minutes: Learning Complete
+  - Full opacity scores
+  - Alert generation enabled (threshold ≥10 point change)
+  - "All data sources active" status shown
+```
+
+这样既能让用户理解早期分数只是暂定值，又能防止校准期间的告警疲劳。
+
+## 关键词归属
+
+国家通过关键词列表与数据进行匹配：
+
+- **Russia**：`russia`、`moscow`、`kremlin`、`putin`
+- **China**：`china`、`beijing`、`xi jinping`、`prc`
+- **Taiwan**：`taiwan`、`taipei`
+
+这样即使来源数据里没有正式国家代码，也能把新闻和事件归属到具体国家。

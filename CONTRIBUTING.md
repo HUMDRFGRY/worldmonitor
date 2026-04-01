@@ -2,6 +2,11 @@
 
 Thank you for your interest in contributing to World Monitor! This project thrives on community contributions — whether it's code, data sources, documentation, or bug reports.
 
+<p align="center">
+  <a href="./CONTRIBUTING.md"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./CONTRIBUTING_CN.md"><strong>中文</strong></a>
+</p>
+
 ## Table of Contents
 
 - [Architecture Overview](#architecture-overview)

@@ -1,0 +1,142 @@
+---
+title: "热点与导航"
+description: "动态热点检测、实时活动评分、区域聚焦导航预设，以及用于持续监控的地图固定。"
+---
+
+<p align="center">
+  <a href="./hotspots.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./hotspots_CN.mdx"><strong>中文</strong></a>
+</p>
+
+WorldMonitor 使用实时新闻相关性来检测和可视化全球热点，提供用于快速切换上下文的区域聚焦预设，并支持地图固定以适配持续监控工作流。
+
+## 动态热点活动
+
+地图上的热点**不是静态威胁等级**。活动级别是基于新闻相关性实时计算的。
+
+每个热点都会定义关键词：
+```typescript
+{
+  id: 'dc',
+  name: 'DC',
+  keywords: ['pentagon', 'white house', 'congress', 'cia', 'nsa', ...],
+  agencies: ['Pentagon', 'CIA', 'NSA', 'State Dept'],
+}
+```
+
+系统会统计当前 feed 中匹配的新闻文章，应用速度分析，并分配活动等级：
+
+| 级别 | 条件 | 视觉 |
+|-------|--------|--------|
+| **Low** | <3 次匹配，正常速度 | 灰色标记 |
+| **Elevated** | 3-6 次匹配 或 速度升高 | 黄色脉冲 |
+| **High** | >6 次匹配 或 spike 速度 | 红色脉冲 |
+
+这会基于实时新闻流创建一个全球关注的动态 “热力图”。
+
+### 热点升级信号
+
+除了视觉活动等级之外，当热点在多个维度上出现显著变化时，系统还会生成 **升级信号**。这种多组件方法通过要求独立数据流的印证来减少误报。
+
+**升级组件**
+
+每个热点的升级分数由四个加权组件融合而成：
+
+| 组件 | 权重 | 数据源 | 衡量内容 |
+|-----------|--------|-------------|------------------|
+| **News Activity** | 35% | RSS feeds | 匹配新闻数量、breaking 标记、速度 |
+| **CII Contribution** | 25% | Country Instability Index | 相关国家的不稳定性分数 |
+| **Geographic Convergence** | 25% | Multi-source events | 地理单元中的事件类型多样性 |
+| **Military Activity** | 15% | OpenSky/AIS | 200km 范围内的航班和舰船 |
+
+**分数计算**
+
+```
+static_baseline = hotspot.baselineRisk  // 1-5 per hotspot
+dynamic_score = (
+  news_component × 0.35 +
+  cii_component × 0.25 +
+  geo_component × 0.25 +
+  military_component × 0.15
+)
+proximity_boost = hotspot_proximity_multiplier  // 1.0-2.0
+
+final_score = (static_baseline × 0.30 + dynamic_score × 0.70) × proximity_boost
+```
+
+**趋势检测**
+
+系统会为每个热点维护 48 个点的历史（24 小时，30 分钟一个间隔）：
+
+- **线性回归** 计算最近分数的斜率
+- **Rising**：斜率 > +0.1 分/间隔
+- **Falling**：斜率 < -0.1 分/间隔
+- **Stable**：斜率在 ±0.1 内
+
+**信号生成**
+
+当满足以下条件时，会发出升级信号（`hotspot_escalation`）：
+
+1. 最终分数超过阈值（通常为 60）
+2. 距离该热点上次信号至少 2 小时冷却
+3. 趋势上升或分数为 critical（>80）
+
+**信号上下文**
+
+| 字段 | 内容 |
+|-------|---------|
+| **Why It Matters** | “Geopolitical hotspot showing significant escalation based on news activity, country instability, geographic convergence, and military presence” |
+| **Actionable Insight** | “Increase monitoring priority; assess downstream impacts on infrastructure, markets, and regional stability” |
+| **Confidence Note** | “Weighted by multiple data sources—news (35%), CII (25%), geo-convergence (25%), military (15%)” |
+
+这种多信号方法意味着热点升级信号代表的是**跨独立数据流的印证证据**，而不只是新闻提及量激增。
+
+## 区域聚焦导航
+
+头部的 FOCUS 选择器可以立即跳转到战略区域。每个预设都会把地图中心对准该区域的大致位置，并使用合适的缩放级别。
+
+### 可用区域
+
+| 区域 | 覆盖 | 主要用途 |
+|--------|----------|-------------------|
+| **Global** | 全世界视图 | 总览、跨区域比较 |
+| **Americas** | 北美聚焦 | 美国监控、NORAD 活动 |
+| **Europe** | 欧盟 + 英国 + 斯堪的纳维亚 + 俄罗斯西部 | NATO 活动、能源基础设施 |
+| **MENA** | 中东 + 北非 | 冲突区、石油基础设施 |
+| **Asia** | 东亚 + 东南亚 | 中台关系、朝鲜半岛 |
+| **Latin America** | 中南美洲 | 区域不稳定、毒品走私 |
+| **Africa** | 撒哈拉以南非洲 | 冲突区、资源开采 |
+| **Oceania** | 澳大利亚 + 太平洋 | 印太活动 |
+
+### 快速导航
+
+FOCUS 下拉菜单可以快速切换上下文：
+
+1. **Breaking news** - 跳转到受影响区域
+2. **Regional briefing** - 在各区域之间轮换，获取态势感知
+3. **Crisis monitoring** - 锁定某个特定战区
+
+区域视图会编码进可分享的 URL，从而支持直接链接到特定地理上下文。
+
+## 地图固定
+
+默认情况下，地图会随着页面滚动，让你可以向下滚动查看下面的面板。地图头部的 **pin 按钮** 会切换 sticky 行为：
+
+| 状态 | 行为 |
+|-------|--------|
+| **Unpinned**（默认） | 地图随页面滚动；向下滚动可看到面板 |
+| **Pinned** | 地图固定在顶部；面板在其下方滚动 |
+
+### 何时固定
+
+- **主动监控** - 一边读新闻面板，一边保持地图可见
+- **交叉参考** - 对比地图标记与面板数据
+- **演示** - 在讨论面板内容时展示地图
+
+### 何时取消固定
+
+- **专注面板** - 阅读面板而不让地图占用屏幕空间
+- **移动端** - 为了更好利用空间，移动端禁用 pin
+- **研究** - 专注数据面板，减少地理分散注意
+
+Pin 状态会通过 localStorage 跨会话保留。

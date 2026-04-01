@@ -132,6 +132,80 @@
         ]
       },
       {
+        "tab": "中文",
+        "groups": [
+          {
+            "group": "快速开始",
+            "pages": [
+              "documentation_CN",
+              "getting-started_CN",
+              "architecture_CN"
+            ]
+          },
+          {
+            "group": "平台与功能",
+            "pages": [
+              "overview_CN",
+              "features_CN",
+              "hotspots_CN",
+              "data-sources_CN"
+            ]
+          },
+          {
+            "group": "情报与分析",
+            "pages": [
+              "signal-intelligence_CN",
+              "ai-intelligence_CN",
+              "country-instability-index_CN",
+              "geographic-convergence_CN",
+              "strategic-risk_CN",
+              "algorithms_CN"
+            ]
+          },
+          {
+            "group": "地图与图层",
+            "pages": [
+              "map-engine_CN",
+              "orbital-surveillance_CN",
+              "military-tracking_CN",
+              "maritime-intelligence_CN",
+              "natural-disasters_CN",
+              "infrastructure-cascade_CN",
+              "maps-and-geocoding_CN",
+              "webcam-layer_CN"
+            ]
+          },
+          {
+            "group": "开发者指南",
+            "pages": [
+              "contributing_CN",
+              "authentication_CN",
+              "adding-endpoints_CN",
+              "api-key-deployment_CN",
+              "release-packaging_CN",
+              "cors_CN",
+              "health-endpoints_CN",
+              "relay-parameters_CN"
+            ]
+          },
+          {
+            "group": "桌面与金融",
+            "pages": [
+              "desktop-app_CN",
+              "finance-data_CN",
+              "premium-finance_CN",
+              "premium-finance-search_CN"
+            ]
+          },
+          {
+            "group": "法律",
+            "pages": [
+              "license_CN"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "API Reference",
         "groups": [
           {

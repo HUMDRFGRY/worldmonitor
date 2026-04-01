@@ -1,0 +1,224 @@
+---
+title: "算法与评分"
+description: "World Monitor 的评分公式、检测算法和分类流水线的详细文档。"
+---
+
+<p align="center">
+  <a href="./algorithms.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./algorithms_CN.mdx"><strong>中文</strong></a>
+</p>
+
+---
+
+## 国家与区域评分
+
+### 国家不稳定指数（CII）
+
+每个有输入事件数据的国家都会获得一个实时不稳定性分数（0-100）。24 个精选的一线国家（US、Russia、China、Ukraine、Iran、Israel、Taiwan、North Korea、Saudi Arabia、Turkey、Poland、Germany、France、UK、India、Pakistan、Syria、Yemen、Myanmar、Venezuela、Cuba、Mexico、Brazil、UAE）拥有单独调校的基线风险配置和关键词列表。所有其他产生任何信号的国家（抗议、冲突、中断、流离失所、气候异常）都会使用通用默认基线自动评分（`DEFAULT_BASELINE_RISK = 15`、`DEFAULT_EVENT_MULTIPLIER = 1.0`）。
+
+服务端分数（`get-risk-scores.ts`）使用与前端（`country-instability.ts`）相同的公式：
+
+| 组件 | 权重 | 细节 |
+| -------------------- | ------ | ------- |
+| **Baseline risk** | 40% | 按国家预配置，反映结构性脆弱性（0-50 分） |
+| **Event score** | 60% | 由 Unrest（25%）、Conflict（30%）、Security（20%）、Information（25%）组成 |
+
+**Unrest 分数**（0-100）：对高流量、低倍数国家使用 Log2 衰减（`multiplier < 0.7`），否则线性。基础上限 50，再加抗议/骚乱死亡加成（最多 30）以及中断严重度加成（TOTAL: 30 分、MAJOR: 15 分、PARTIAL: 5 分，上限 50）。
+
+**Conflict 分数**（0-100）：加权 ACLED 事件（battle x3、explosion x4、civilian violence x5，上限 50）、平方根缩放死亡人数（最多 40）、平民加成（最多 10）、按严重度加权的伊朗打击加成（最多 50），以及以色列的 OREF 警报加成（25 基础 + 每个活跃警报 5 分，总上限 50）。24 小时滚动历史还会带来次级加成：3-9 条警报贡献 +5，10+ 条贡献 +10。
+
+**Security 分数**（0-100）：GPS/GNSS 干扰（high：每个 hex 5 分，medium：每个 hex 2 分，上限 35）。干扰分类阈值：Low 0-2%（隐藏）、Medium 2-10%（琥珀）、High >10%（红色）。
+
+**Information 分数**：保留（0）；没有可用的服务端新闻数据。
+
+**下限**：UCDP 活跃战争会把分数钉在 >= 70，UCDP 小型冲突钉在 >= 50。旅行警告中 Do-Not-Travel 钉在 >= 60，Reconsider 钉在 >= 50。
+
+**加成**：警报加成（Do-Not-Travel +15、Reconsider +10、Caution +5）、OREF 对以色列的混合加成（+15 活跃警报，+5/10 取决于 24 小时历史数量）、气候严重度（最多 +15）、网络威胁（最多 +10）、野火（最多 +8）。
+
+### 热点升级评分
+
+情报热点会收到融合四个归一化信号（0–100）的动态升级分数：
+
+- **新闻活动**（35%） - 热点区域内的文章数量和严重度
+- **国家不稳定性**（25%） - 东道国的 CII 分数
+- **地理收敛告警**（25%） - 空间分箱检测在 1° lat/lon 单元内是否有 3+ 种事件类型（抗议 + 军事 + 地震）同时发生
+- **军事活动**（15%） - 热点附近的舰船聚类和飞行密度
+
+系统把静态基线风险（40%）和检测到的事件（60%）混合，并通过 48 小时历史上的线性回归跟踪趋势。信号发射会有 2 小时冷却，以防止告警疲劳。
+
+### 地理收敛检测
+
+事件（抗议、军机、舰船、地震）会在 24 小时窗口内按 1°×1° 地理单元分箱。当一个单元中有 3+ 种不同事件类型收敛时，就会触发收敛告警。评分依据是类型多样性（每种 unique type ×25 分）外加事件数量奖励（×2 分）。告警会使用冲突区、水道和热点数据库反向地理编码为可读名称。
+
+### 战略风险分数算法
+
+Strategic Risk 面板会计算一个 0–100 的综合地缘政治风险分数，把所有情报模块的数据综合成单一、持续更新的指标。
+
+**综合公式**：
+
+```
+compositeScore =
+    convergenceScore × 0.30     // multi-type events co-located in same H3 cell
+  + ciiRiskScore     × 0.50     // CII top-5 country weighted blend
+  + infraScore       × 0.20     // infrastructure cascade incidents
+  + theaterBoost     (0–25)     // military asset density + strike packaging
+  + breakingBoost    (0–15)     // breaking news severity injection
+```
+
+**子分数**：
+
+- `convergenceScore` - `min(100, convergenceAlertCount × 25)`。每个包含 3+ 种不同事件类型的地理单元贡献 25 分
+- `ciiRiskScore` - 按 CII 分数排名前 5 的国家，权重 `[0.40, 0.25, 0.20, 0.10, 0.05]`，并对每个 CII > 50 的国家额外加 `min(20, elevatedCount × 5)`
+- `infraScore` - `min(100, cascadeAlertCount × 25)`。每个基础设施级联事件贡献 25 分
+- `theaterBoost` - 对每个战区态势摘要：`min(10, floor((aircraft + vessels) / 5))` + 如果具备 strike 能力（tanker + AWACS + fighters 同时出现）再加 5。跨战区求和，上限 25。如果态势数据陈旧则减半
+- `breakingBoost` - critical 突发新闻加 15 分，high 加 8 分，上限 15。突发告警在 30 分钟后过期
+
+**告警融合**：当收敛检测、CII 激增（≥10 分变化）和基础设施级联的告警在 2 小时窗口内且彼此相距 200km 以内或位于同一国家时，会被合并。合并后的告警保留最高优先级并合并摘要。告警队列最多 50 条，24 小时后修剪。
+
+**趋势检测**：相较上一个综合分数，变化 ≥3 为 “escalating”，≤−3 为 “de-escalating”，否则为 “stable”。面板初始化后的 15 分钟学习期会抑制 CII 激增告警，以防初始数据加载导致误报。
+
+### 人口暴露估算
+
+活跃事件（冲突、地震、洪水、野火）会与 WorldPop 人口密度数据交叉引用，以估算影响区内的平民人数。不同事件类型的半径反映其典型影响范围：
+
+| 事件类型 | 半径 | 理由 |
+| --------------- | ------ | ---------------------------------------- |
+| **Conflicts** | 50 km | 直接战区 + 流离失所缓冲 |
+| **Earthquakes** | 100 km | 震动传播 |
+| **Floods** | 100 km | 流域与排水盆地范围 |
+| **Wildfires** | 30 km | 烟雾与疏散范围 |
+
+WorldPop API 调用会并发批量处理（最多 10 个并行请求），以便在多个同时发生的事件下避免顺序瓶颈。Population Exposure 面板会显示一个总结 header，包含总受影响人口和逐事件分解表。
+
+---
+
+## 军事与战略
+
+### 战区态势评估
+
+9 个作战战区会持续评估军事态势升级：
+
+| 战区 | 关键触发 |
+| --------------------- | ------------------------------------------- |
+| Iran / Persian Gulf | 航母编队、油轮活动、AWACS |
+| Taiwan Strait | PLAAF sorties、USN 航母存在 |
+| Baltic / Kaliningrad | 俄罗斯西部军区飞行 |
+| Korean Peninsula | B-52/B-1 部署、朝鲜导弹活动 |
+| Eastern Mediterranean | 多国海军演习 |
+| Horn of Africa | 反海盗巡逻、无人机活动 |
+| South China Sea | 航行自由行动 |
+| Arctic | 远程航空巡逻 |
+| Black Sea | ISR 飞行、海军机动 |
+
+态势等级会根据以下综合因素从 NORMAL → ELEVATED → CRITICAL 升级：
+
+- **战区内飞机数量**（驻留和临时）
+- **打击能力** - tanker + AWACS + fighters 同时存在说明是打击编组，而不是例行训练
+- **海军存在** - 航母编队和战斗群编成
+- **国家不稳定性** - 战区邻近国家的高 CII 会放大态势
+
+每个战区都连接到 38+ 个军事基地，从而可以自动把观察到的飞行与已知作战位置关联起来。
+
+### 军事激增与外军存在检测
+
+系统会监控五个作战战区（中东、东欧、西欧、太平洋西部、非洲之角）及其 38+ 关联军事基地。它会按活动类型对热点附近的舰船聚类进行分类：
+
+- **Deployment** - 航母在场，且有 5+ 艘舰船
+- **Exercise** - 战斗舰形成队形
+- **Transit** - 舰船通过中
+
+外军存在会被双重计分：运营国会被标记为力量投射，东道国会被标记为外军威胁。AIS 空洞（dark ships）会被标记为潜在信号纪律指标。
+
+### USNI 舰队情报
+
+仪表盘会摄取美国海军学会（USNI）每周舰队部署报告，并将其与实时 AIS 船舶追踪数据合并。每份报告都会解析出航母打击群、两栖戒备群和单艘战斗舰部署 - 提取舷号、舰名、作战区域和任务说明。
+
+合并算法会按舷号和标准化名称，把 USNI 条目与实时 AIS 追踪舰船匹配。匹配成功的舰船会获得增强信息：打击群归属、部署状态（已部署 / 返回中 / 在港）和作战战区。未匹配的 USNI 条目（潜艇、关闭应答器的舰船）会根据最后已知作战区域生成 synthetic positions，并进行坐标散布以避免标记重叠。
+
+这种双源方法比单独的 AIS 或 USNI 更能提供完整的作战图景 - AIS 能显示实时位置，但会漏掉潜艇和关闭 transponder 的舰船，而 USNI 能捕捉完整作战序列，但会滞后一周。
+
+### 飞机补充信息
+
+通过 ADS-B transponder 数据检测到的军机，会由 Wingbits 航空情报 API 补充注册号、制造商、型号、所有者和运营方等信息。每个航班都会得到一个军事置信度分类：
+
+| 置信度 | 条件 |
+| ------------- | ---------------------------------------------------------------- |
+| **Confirmed** | 运营方匹配已知军种或国防承包商 |
+| **Likely** | 飞机类型完全是军事用途（tanker、AWACS、fighter） |
+| **Possible** | 在军事作业区域内的政府注册飞机 |
+| **Civilian** | 没有检测到军事指标 |
+
+增强查询会批量执行（每次请求最多 50 架飞机），并使用 circuit breaker 模式缓存，避免在高流量期间持续冲击上游 API。增强后的元数据会进入战区态势评估 - 一架 KC-135 tanker 与 F-15 和 E-3 AWACS 同时出现，说明是打击编组，而不是例行训练。
+
+---
+
+## 基础设施
+
+### 海底电缆健康监测
+
+除了在地图上显示静态电缆路线外，系统还会通过交叉引用两个实时数据源来主动监测电缆健康：
+
+1. **NGA Navigational Warnings** - 美国国家地理空间情报局会发布海事安全通报，其中经常提到电缆维修操作。系统会过滤这些通报中的电缆相关关键词（`CABLE`、`CABLESHIP`、`SUBMARINE CABLE`、`FIBER OPTIC` 等），并提取结构化数据：船名、DMS/十进制坐标、警报严重度和维修 ETA。每条通报都会与 5° 地理半径内最近的已编目海底电缆匹配。
+2. **AIS 电缆船追踪** - 专门的电缆维修船（CS Reliance、Île de Bréhat、Cable Innovator 等）会通过 AIS transponder 数据中的名称模式匹配识别。根据警报文本中的关键词分析，船舶状态会分类为 `enroute`（前往维修点）或 `on-station`（正在施工）。
+
+警报会按严重度分类：`fault`（电缆断裂、切断或损坏 - 可能导致流量重路由）或 `degraded`（维修进行中，部分容量受限）。影响描述会动态生成，把警报和具体电缆以及它所服务的国家连接起来 - 从而能回答“哪些服务南亚的电缆目前正在维修？”这类问题。
+
+**健康评分算法** - 每条电缆会得到一个 0–100 的综合健康分数，由加权信号和指数时间衰减计算而来：
+
+```
+signal_weight = severity × (e^(-λ × age_hours))     where λ = ln(2) / 168 (7-day half-life)
+health_score  = max(0, 100 − Σ(signal_weights) × 100)
+```
+
+信号分为两类：`operator_fault`（确认的电缆损坏 - 严重度 1.0）和 `cable_advisory`（维修操作、导航警报 - 严重度 0.6）。地理匹配使用经纬度余弦修正的等距近似，在每条 NGA 警报坐标 50km 范围内找出最近的已编目电缆。结果会缓存在 Redis 中（完整结果 TTL 6 小时，部分结果 10 分钟），并带有内存回退，以便在 Redis 不可用时仍能提供旧数据 - 确保电缆健康图层在缓存失败时也不会显示空白。
+
+### 基础设施级联建模
+
+除了近邻关联外，系统还会模拟中断如何在互联基础设施中传播。依赖图把海底电缆、管道、港口、chokepoints 和国家用加权边连接起来，边代表容量依赖：
+
+```
+Disruption Event → Affected Node → Cascade Propagation (BFS, depth ≤ 3)
+                                          │
+                    ┌─────────────────────┤
+                    ▼                     ▼
+            Direct Impact         Indirect Impact
+         (e.g., cable cut)    (countries served by cable)
+```
+
+**影响计算**：`strength = edge_weight × disruption_level × (1 − redundancy)`
+
+战略 chokepoint 模型捕捉现实世界依赖：
+
+- **Strait of Hormuz** - 日本 80% 的石油、韩国 70%、印度 60%、中国 40%
+- **Suez Canal** - 欧亚贸易路线（德国、意大利、英国、中国）
+- **Malacca Strait** - 中国 80% 的石油过境
+
+港口按类型加权：油气/LNG 终端（0.9 - 关键）、集装箱港（0.7）、海军基地（0.4 - 地缘政治重要但经济性较低）。这使得系统可以回答“如果霍尔木兹海峡关闭，哪些国家会在 30 天内面临能源短缺？”这类问题。
+
+### 相关资产与近邻关联
+
+当新闻事件被地理定位后，系统会自动识别 600km 半径内的关键基础设施 - 管道、海底电缆、数据中心、军事基地和核设施，并按距离排序。这可以立刻提供地缘政治背景：战略 chokepoint 附近的电缆切断、核设施附近的抗议，或数据中心集群附近的部队调动。
+
+---
+
+## 新闻与实体分析
+
+### 新闻地理定位
+
+一个 217 个枢纽的战略地点数据库通过关键词匹配从标题中推断地理位置。枢纽覆盖首都、冲突区、战略 chokepoints（霍尔木兹海峡、苏伊士运河、马六甲海峡）和国际组织。对关键层级枢纽和活跃冲突区会提升置信分，支持无需 RSS feed 显式地理元数据的地图驱动新闻定位。
+
+### 实体索引与交叉引用
+
+结构化实体注册表会用多个查找索引编目国家、组织、世界领导人和军事实体：
+
+| 索引类型 | 用途 | 示例 |
+| ----------------- | --------------------- | ----------------------------------------------- |
+| **ID index** | 直接实体查找 | `entity:us` → United States 资料 |
+| **Alias index** | 名称变体匹配 | “America”、“USA”、“United States” → 同一实体 |
+| **Keyword index** | 上下文检测 | “Pentagon”、“White House” → United States |
+| **Sector index** | 领域分组 | “military”、“energy”、“tech” |
+| **Type index** | 分类过滤 | “country”、“organization”、“leader” |
+
+实体匹配使用单词边界 regex 以防止误报（例如 “Iran” 匹配到 “Ukraine” 之类的问题）。置信分按匹配质量分层：精确名称匹配得分 1.0，别名 0.85–0.95，关键词匹配 0.7。当同一实体在多个独立数据源（新闻、军事追踪、抗议 feed、市场信号）中同时出现时，系统会把它识别为 focal point，并在情报图景中提高其显著性。
+
+### 标题评分

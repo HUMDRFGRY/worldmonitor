@@ -1,0 +1,245 @@
+---
+title: "功能与界面"
+description: "World Monitor 完整功能指南，包括交互式地图、数据图层、情报面板、市场数据、面板管理、移动端体验和键盘快捷键。"
+---
+
+<p align="center">
+  <a href="./features.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./features_CN.mdx"><strong>中文</strong></a>
+</p>
+
+World Monitor 提供了一整套用于实时全球情报监控的功能，从交互式地图和数据图层，到市场追踪和可自定义的面板布局，一应俱全。
+
+## 交互式全球地图
+
+- **缩放与平移** - 使用鼠标/触控板手势进行平滑导航
+- **区域聚焦** - 8 个预设视图可快速跳转（Global、Americas、Europe、MENA、Asia、Latin America、Africa、Oceania）
+- **图层系统** - 可切换 20+ 个按类别组织的数据图层
+- **时间过滤** - 按时间范围筛选事件（1h、6h、24h、48h、7d）
+- **可固定地图** - 滚动面板时可将地图固定在顶部，或让它随页面滚动
+- **智能标记聚类** - 低缩放级别时邻近标记会分组，放大时展开
+
+## 标记聚类
+
+密集区域中拥有大量数据点时，会使用智能聚类来避免视觉拥挤：
+
+**工作方式**
+
+- 在像素半径内的标记（会随缩放级别自适应）会合并为聚类徽标
+- 聚类徽标显示被分组项目的数量
+- 点击聚类会打开一个弹窗，列出所有被分组项目
+- 放大后聚类半径会缩小，最终显示单个标记
+
+**分组逻辑**
+
+- **Protests**：仅在同一国家内聚类（骚乱优先排序，高严重度优先）
+- **Tech HQs**：仅在同一城市内聚类（Big Tech 优先于独角兽，再优先于上市公司）
+- **Tech Events**：仅在同一地点内聚类（按日期排序，最早的优先）
+
+这可以防止像迪拜和利雅得的公司在全球缩放级别下被合并，同时在洲际尺度上仍保持清晰的可视化。
+
+## 数据图层
+
+图层按逻辑分组，便于高效监控：
+
+**地缘政治**
+| 图层 | 描述 |
+|-------|-------------|
+| **Conflicts** | 带有关联方和状态的活跃冲突区域 |
+| **Hotspots** | 基于新闻相关性的情报热点与活动等级 |
+| **Sanctions** | 处于经济制裁机制下的国家 |
+| **Protests** | 来自 ACLED 和 GDELT 的实时社会动荡事件 |
+
+**军事与战略**
+| 图层 | 描述 |
+|-------|-------------|
+| **Military Bases** | 来自 9 个运营方的 226 个全球军事设施 |
+| **Nuclear Facilities** | 发电厂、武器实验室、浓缩设施 |
+| **Gamma Irradiators** | IAEA 跟踪的 1-3 类辐射源 |
+| **APT Groups** | 带地理归属的国家级网络威胁行为体 |
+| **Spaceports** | 12 个主要发射设施（NASA、SpaceX、Roscosmos、CNSA、ESA、ISRO、JAXA） |
+| **Critical Minerals** | 含运营方信息的战略矿产储量（锂、钴、稀土等） |
+
+**基础设施**
+| 图层 | 描述 |
+|-------|-------------|
+| **Undersea Cables** | 86 条全球海底电缆路线 |
+| **Pipelines** | 分布在各大洲的 88 条油气管道 |
+| **Internet Outages** | 来自 Cloudflare Radar 的网络中断 |
+| **AI Datacenters** | 来自 Epoch AI 数据集的 313 个 AI 计算集群 |
+
+**交通**
+| 图层 | 描述 |
+|-------|-------------|
+| **Ships (AIS)** | 通过 AIS 实时追踪船舶，并监控 chokepoint 和 62 个战略港口* |
+| **Delays** | FAA 机场延误状态和地面停止 |
+
+*\*AIS 数据来自 [AISStream.io](https://aisstream.io)，使用地面接收机，在欧洲/大西洋水域覆盖更强。中东、亚洲和公海覆盖有限。Satellite AIS 提供方（Spire、Kpler）可提供全球覆盖，但需要商业许可证。*
+
+**自然事件**
+| 图层 | 描述 |
+|-------|-------------|
+| **Natural** | USGS 地震（M4.5+）+ NASA EONET 事件（风暴、野火、火山、洪水） |
+| **Weather** | NWS 恶劣天气预警 |
+
+**覆盖层与标签**
+| 图层 | 描述 |
+|-------|-------------|
+| **Day/Night** | 实时太阳终止线覆盖层，显示昼夜区域（每 5 分钟更新） |
+| **Economic** | 带标签页的经济面板，包含 FRED 指标、EIA 石油分析和 USASpending.gov 政府合同 |
+| **Countries** | 国家边界标签 |
+| **Waterways** | 战略水道和 chokepoints |
+| **Trade Routes** | 19 条全球贸易路线（集装箱、能源、散货），通过多段弧线穿过战略 chokepoints |
+| **Fires (FIRMS)** | NASA FIRMS 卫星火点检测（VIIRS 热点），用于野火和运营风险监控 |
+
+**Webcams**
+| 图层 | 描述 |
+|-------|-------------|
+| **Live Webcams** | 覆盖 5 个地缘区域的 22 路直播流（中东、东欧、亚太、非洲、美洲），带自动回退处理 |
+
+## 情报面板
+
+除了原始数据流之外，仪表盘还提供综合情报面板：
+
+| 面板 | 用途 |
+|-------|-------------|
+| **AI Strategic Posture** | 战区级军事聚合与打击能力分析 |
+| **Strategic Risk Overview** | 结合所有情报模块的综合风险分数 |
+| **Country Instability Index** | 24 个受监控国家的实时稳定性评分 |
+| **Infrastructure Cascade** | 对电缆、管道和 chokepoints 的依赖分析 |
+| **Live Intelligence** | 基于 GDELT 的主题 feed（军事、网络、核能、制裁） |
+| **Intel Feed** | 精选防务与安全新闻来源 |
+| **Country Brief** | AI 生成的国家概况，包含关键指标、风险因素和最新发展 |
+| **Aviation Intelligence** | 6 个标签页的航空面板（Ops、Flights、Airlines、Tracking、News、Prices），带 NOTAM 关闭检测，覆盖 111 个机场 |
+| **Climate Anomalies** | 基于 Open-Meteo ERA5 数据与滚动基线对比的 15 个区域温度/降水异常 |
+| **Displacement Tracking** | UN OCHA HAPI 难民、寻求庇护者和境内流离失所者数据，含来源国/接收国视角 |
+| **Gulf Economies** | 6 个 GCC 国家（沙特、阿联酋、卡塔尔、科威特、巴林、阿曼）的指数、货币和石油数据 |
+| **WTO Trade Policy** | 活跃贸易限制、关税趋势、双边贸易流和 SPS/TBT 壁垒 |
+| **Central Banks & BIS** | 来自 13 家央行的政策利率和货币决策，数据来自 BIS |
+| **Market Watchlist** | 用户自定义的股票/大宗商品/加密货币符号列表（最多 50 个） |
+
+这些面板通过评分算法、趋势检测和跨来源关联，把原始信号转化为可执行情报。
+
+## 新闻聚合
+
+跨类别的多源 RSS 聚合：
+
+- **World / Geopolitical** - BBC、Reuters、AP、Guardian、NPR、Politico、The Diplomat
+- **Middle East / MENA** - Al Jazeera、BBC ME、Guardian ME、Al Arabiya、Times of Israel
+- **Africa** - BBC Africa、News24、Google News 聚合（区域与萨赫勒覆盖）
+- **Latin America** - BBC Latin America、Guardian Americas、Google News 聚合
+- **Asia-Pacific** - BBC Asia、South China Morning Post、Google News 聚合
+- **Energy & Resources** - Google News 聚合（油气、核能、采矿、Reuters Energy）
+- **Technology** - Hacker News、Ars Technica、The Verge、MIT Tech Review
+- **AI / ML** - ArXiv、VentureBeat AI、The Verge AI、MIT Tech Review
+- **Finance** - CNBC、MarketWatch、Financial Times、Yahoo Finance
+- **Government** - White House、State Dept、Pentagon、Treasury、Fed、SEC、UN News、CISA
+- **Intel Feed** - Defense One、Breaking Defense、Bellingcat、Krebs Security、Janes
+- **Think Tanks** - Foreign Policy、Atlantic Council、Foreign Affairs、CSIS、RAND、Brookings、Carnegie
+- **Crisis Watch** - International Crisis Group、IAEA、WHO、UNHCR
+- **Regional Sources** - Xinhua、TASS、Kyiv Independent、Moscow Times
+- **Layoffs Tracker** - 科技行业裁员
+
+## 来源过滤
+
+头部的 **SOURCES** 按钮会打开一个全局来源管理弹窗，让你对仪表盘里显示的新闻来源进行细粒度控制。
+
+**能力：**
+
+- **搜索**：按名称过滤来源列表，快速找到目标媒体
+- **单个开关**：点击任意来源可启用/禁用
+- **批量操作**：支持 "Select All" 和 "Select None"
+- **计数显示**：显示 "45/77 enabled" 之类的状态
+- **持久化**：设置保存到 localStorage，并跨会话保留
+
+**使用场景：**
+
+- **减少噪音**：禁用高流量聚合源（Google News），聚焦主流媒体
+- **区域聚焦**：只启用特定地理区域相关的来源
+- **来源质量**：禁用信噪比较差的来源
+- **偏差管理**：通过启用/禁用具有特定编辑倾向的来源来平衡报道
+
+**技术细节：**
+
+- 禁用来源会在抓取时过滤，而不是在展示时过滤，从而减少带宽和 API 调用
+- 会同时影响所有新闻面板：禁用一次 BBC，就会在所有地方消失
+- 所有来源都被禁用时，面板会显示 "All sources disabled" 提示
+- 变更会在下一次刷新周期生效
+
+## 区域情报面板
+
+专门的面板为战略重要区域提供聚焦覆盖：
+
+| 面板 | 覆盖 | 主要主题 |
+|-------|----------|------------|
+| **Middle East** | MENA 地区 | 以色列-加沙、伊朗、海湾国家、红海 |
+| **Africa** | 撒哈拉以南非洲 | 萨赫勒不稳定、政变、叛乱、资源 |
+| **Latin America** | 中美洲与南美洲 | 委内瑞拉、毒品走私、地区政治 |
+| **Asia-Pacific** | 东亚与东南亚 | 中美、朝鲜半岛、东盟 |
+| **Energy & Resources** | 全球 | 石油市场、核能、采矿、能源安全 |
+
+每个面板都会聚合该区域的专属来源，以提供聚焦的态势感知。当全球事件需要特别关注某一区域时，这种方式非常适合定点监控。
+
+## 实时新闻流
+
+嵌入来自主要新闻网络的 YouTube 直播流，并支持频道切换：
+
+| 频道 | 覆盖 |
+|---------|----------|
+| **Bloomberg** | 商业与财经新闻 |
+| **Sky News** | 英国与国际新闻 |
+| **Euronews** | 欧洲视角 |
+| **DW News** | 德国国际广播 |
+| **France 24** | 法国全球新闻 |
+| **Al Arabiya** | 中东新闻（阿语视角） |
+| **Al Jazeera** | 中东与国际新闻 |
+
+**核心功能：**
+
+- **频道切换器** - 一键在各网络之间切换
+- **直播指示器** - 闪烁点显示流状态，点击可暂停/播放
+- **静音切换** - 音频控制（默认静音）
+- **双宽面板** - 更大的视频播放器，便于观看
+
+**性能优化：**
+
+直播流面板使用 **YouTube IFrame Player API**，而不是原始 iframe 嵌入。这提供了几个优势：
+
+| 功能 | 好处 |
+|---------|---------|
+| **持久播放器** | 静音/播放/频道切换时不会重新加载 iframe |
+| **API 控制** | 可直接调用 `playVideo()`、`pauseVideo()`、`mute()` |
+| **更少带宽** | 状态变化时继续播放同一流 |
+| **更快切换** | 频道切换通过 `loadVideoById()` 完成 |
+
+**空闲检测：**
+
+为了节省资源，面板实现了自动空闲暂停：
+
+| 触发条件 | 动作 |
+|---------|--------|
+| **标签页隐藏** | 流暂停（通过 Visibility API） |
+| **5 分钟无操作** | 流暂停（无鼠标/键盘活动） |
+| **用户返回** | 自动恢复播放 |
+| **手动暂停** | 单独追踪用户意图 |
+
+这可以防止后台标签页消耗带宽，同时保留用户对手动暂停流的偏好。
+
+## 市场数据
+
+- **Stocks** - 通过 Finnhub 获取主要指数和科技股（Yahoo Finance 备用）
+- **Commodities** - 石油、黄金、天然气、铜、VIX
+- **Crypto** - 通过 CoinGecko 获取比特币、以太坊、Solana
+- **Sector Heatmap** - 板块表现可视化（11 个 SPDR 板块）
+- **Economic Indicators** - 通过 FRED 获取美联储数据（资产、利率、收益率）
+- **Oil Analytics** - EIA 数据：WTI/Brent 价格、美国产量、美国库存及周变化
+- **Government Spending** - USASpending.gov：最近的联邦合同与授标
+
+## 预测市场
+
+- Polymarket 集成，用于事件概率追踪
+- 与新闻事件的相关性分析
+
+## 搜索（Cmd+K）
+
+用于浏览整个应用的全局命令面板。所有 55 个面板、地图视图、图层切换和国家简报都可搜索：

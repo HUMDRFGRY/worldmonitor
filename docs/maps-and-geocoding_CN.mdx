@@ -1,0 +1,153 @@
+---
+title: "地图基础设施与地理编码"
+description: "静态地图资源、国家几何、地理编码服务和边界覆盖层。"
+---
+
+<p align="center">
+  <a href="./maps-and-geocoding.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./maps-and-geocoding_CN.mdx"><strong>中文</strong></a>
+</p>
+
+## R2 CDN - `maps.worldmonitor.app`
+
+所有大型静态地图文件都从 Cloudflare R2 提供，而**不是**从 Vercel 提供。R2 bucket `worldmonitor-maps` 通过 Cloudflare 代理的自定义域名对外：
+
+| URL | 用途 |
+|-----|-----|
+| `https://maps.worldmonitor.app/<file>` | 生产 URL（Cloudflare 代理、缓存、带 CORS 头） |
+| `https://pub-8ace9f6a86d74cb2bd5eb1de5590dd9e.r2.dev/<file>` | 原始 R2 - **代码中绝不能使用**（没有 CF 缓存，也没有 CORS） |
+
+### 为什么用 R2 而不是 Vercel？
+
+- Cloudflare 带宽免费；Vercel 会按流量收费
+- CF Cache Rules 会把 `/data/`、`/assets/`、`/textures/` 等缓存 30 天
+- 大文件（GeoJSON、PMTiles）不会拖大 Vercel 部署体积
+
+### R2 上的文件
+
+| 文件 | 大小 | 用途 |
+|------|------|---------|
+| `countries.geojson` | ~210 KB | 基础国家多边形（ISO 3166-1 Alpha-2 编码） |
+| `country-boundary-overrides.geojson` | ~600 KB | 更高分辨率的 Natural Earth 边界覆盖层 |
+| `*.pmtiles` | ~80 GB | 自托管矢量地图瓦片（在设置 `VITE_PMTILES_URL` 时使用） |
+
+### 上传到 R2
+
+```bash
+# 单文件
+rclone copyto <local-path> r2:worldmonitor-maps/<filename>
+
+# rclone 配置注意：设置 no_check_bucket = true（token 没有 CreateBucket 权限）
+```
+
+### CORS
+
+R2 **不支持**通配符子域名（`https://*.example.com`）。每个 origin 都必须在 CORS 规则中显式列出。可使用 `r2 bucket cors set` 或直接 `curl -X PUT` 调用 R2 API（Wrangler 4.31 可能会报 “not well formed”）。
+
+## 国家几何服务
+
+**文件**：`src/services/country-geometry.ts`
+
+这个服务提供所有国家级地理编码：点在多边形内查找、ISO 代码解析、名称匹配、边界框和质心。它会在首次使用时加载国家边界，并建立索引以加速查询。
+
+### 数据流
+
+```
+countries.geojson (/data/)  ──►  Parse & Index (rebuildCountryIndex)  ──►  countryIndex Map
+                                        │
+country-boundary-overrides.geojson      │
+  (R2 CDN, 3s timeout)     ──►  applyCountryGeometryOverrides  ──►  replace matching polygons
+```
+
+1. `countries.geojson` - 基础多边形，带 ISO 代码和名称，通过 `/data/`（Vercel）提供
+2. `country-boundary-overrides.geojson` - 来自 [Natural Earth](https://www.naturalearthdata.com/) 的可选高分辨率多边形，通过 R2 CDN（`maps.worldmonitor.app`）提供。特征通过 `ISO3166-1-Alpha-2`（或 `ISO_A2`）代码匹配；匹配到的特征会替换基础几何
+3. 基础文件先加载，国家索引会立即构建（服务变为可用）。随后会 fetch 覆盖层文件，**3 秒超时** - 失败会被静默忽略。覆盖层查找使用 `Map<code, Feature>`，实现 O(1) 匹配
+
+### 索引数据结构
+
+| 结构 | 键 | 用途 |
+|-----------|-----|---------|
+| `countryIndex` | ISO-2 code | 完整几何 + bbox，用于点在多边形内判断 |
+| `iso3ToIso2` | ISO-3 code | Alpha-3 → Alpha-2 转换 |
+| `nameToIso2` | lowercase name | 国家名 → Alpha-2 查找 |
+| `codeToName` | ISO-2 code | 代码 → 显示名称 |
+| `sortedCountryNames` | — | 按名称长度排序的正则匹配器（长的优先），用于文本提取 |
+
+### 关键导出
+
+| 函数 | 用途 |
+|----------|---------|
+| `preloadCountryGeometry()` | 触发提前加载（应用启动时调用） |
+| `getCountryAtCoordinates(lat, lon)` | 点在多边形内 → 国家代码 + 名称 |
+| `isCoordinateInCountry(lat, lon, code)` | 检查某个点是否在指定国家内 |
+| `getCountryNameByCode(code)` | ISO-2 → 显示名称 |
+| `iso3ToIso2Code(iso3)` | ISO-3 → ISO-2 |
+| `nameToCountryCode(text)` | 精确名称匹配 → ISO-2 |
+| `matchCountryNamesInText(text)` | 从自由文本中提取所有国家名 |
+| `getCountryBbox(code)` | 边界框 `[minLon, minLat, maxLon, maxLat]` |
+| `getCountryCentroid(code)` | 边界框中心，可选回退边界 |
+| `resolveCountryFromBounds(lat, lon, bounds)` | 使用几何信息解决重叠边界框区域 |
+
+### 名称别名
+
+常见别名会映射在 `NAME_ALIASES` 中：
+
+```
+'dr congo' → CD, 'czech republic' → CZ, 'uae' → AE, 'uk' → GB, 'usa' → US, ...
+```
+
+### 政治覆盖
+
+`POLITICAL_OVERRIDES` 会把一些次国家代码映射到主权国家代码，以便应用把它们当作独立实体处理（例如 `CN-TW → TW`）。
+
+## 国家边界覆盖层
+
+覆盖机制让我们可以单独改善某些国家边界，而无需替换整个 `countries.geojson`。这是处理争议边界的基础（见 [#1044](https://github.com/koala73/worldmonitor/issues/1044)）。
+
+### 工作方式
+
+1. 加载基础 `countries.geojson` 之后，应用会从 R2 CDN 拉取 `country-boundary-overrides.geojson`，超时 3 秒
+2. 对覆盖文件中的每个 feature，都会通过 ISO Alpha-2 代码与 `countries.geojson` 中的国家匹配（使用 `Map` 做 O(1) 查找）
+3. 覆盖几何会**替换**基础几何（既会替换用于地图渲染的原始 GeoJSON，也会替换索引后的点在多边形内数据）
+4. 覆盖文件可以包含任意数量的国家 - 只有匹配到的代码才会应用
+
+### 添加新国家覆盖
+
+1. 从 [Natural Earth 50m Admin 0](https://www.naturalearthdata.com/downloads/50m-cultural-vectors/) 获取边界（显示事实控制边界，而不是外交主张）
+2. 按 ISO 代码提取国家 feature，并保存为 GeoJSON
+3. 合并到或替换 `country-boundary-overrides.geojson`
+4. 上传到 R2：
+   ```bash
+   rclone copyto public/data/country-boundary-overrides.geojson r2:worldmonitor-maps/country-boundary-overrides.geojson
+   ```
+5. 不需要代码变更 - 应用会自动拾取新几何
+
+**示例脚本**：`scripts/fetch-country-boundary-overrides.mjs` 会下载完整的 Natural Earth 50m 数据集（约 24 MB），提取国家 feature（当前包括 Pakistan 和 India），并写入覆盖文件。
+
+### 地缘政治敏感性
+
+- Natural Earth 展示的是**事实控制边界**（谁实际控制领土），而不是外交主张
+- 这是大多数地图平台采用的标准
+- 添加争议地区覆盖时，请在 PR 描述中记录来源和理由
+- 覆盖系统不会增加或删除领土 - 它只是用同一权威来源的高分辨率轮廓替换低分辨率轮廓
+
+## 回退边界
+
+对于未加载完整多边形几何的区域，`country-geometry.ts` 中的 `ME_STRIKE_BOUNDS` 会为中东国家提供矩形边界框。`resolveCountryFromBounds()` 会把它们作为快速第一步，再在多个边界框重叠时回退到精确的点在多边形内判断。
+
+## 底图瓦片
+
+底图瓦片配置位于 `src/config/basemap.ts`。有关瓦片提供方（PMTiles、OpenFreeMap、CARTO）、主题和回退行为的完整细节，请参见 [Map Engine](/map-engine)。
+
+PMTiles 也会通过 `maps.worldmonitor.app` 从 R2 提供，并通过 `VITE_PMTILES_URL` 配置。
+
+## 常见错误
+
+| 错误 | 修复 |
+|---------|-----|
+| 在代码里使用 `pub-*.r2.dev` URL | 始终使用 `maps.worldmonitor.app`（Cloudflare 代理） |
+| 从 Vercel 提供大型 GeoJSON | 上传到 R2 - Vercel 带宽在规模上很贵 |
+| 获取覆盖层时不设超时 | 始终使用 `AbortSignal.timeout` - 覆盖层 CDN 可能很慢或不可用 |
+| 忘记 `POLITICAL_OVERRIDES` | 检查是否需要国家代码映射（例如 `CN-TW → TW`） |
+| 添加别名时不检查已有项 | 先检查 `NAME_ALIASES` 和 `nameToIso2` map |
+| 使用 `projection([lon, lat])` 时不做 NaN 保护 | d3 projection 可能返回 `[NaN, NaN]`（truthy） - 始终用 `Number.isFinite()` 检查 |

@@ -1,0 +1,176 @@
+---
+title: "Relay 参数（Railway + Vercel）"
+description: "本文档说明 AIS/OpenSky relay 路径中使用的全部环境变量。"
+---
+
+<p align="center">
+  <a href="./relay-parameters.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./relay-parameters_CN.mdx"><strong>中文</strong></a>
+</p>
+
+本文档覆盖 AIS/OpenSky relay 路径使用的全部环境变量：
+
+- Railway relay 进程：`scripts/ais-relay.cjs`
+- Vercel relay proxy endpoints（旧版）：`api/opensky.js`、`api/ais-snapshot.js`、`api/polymarket.js`、`api/rss-proxy.js`
+
+<Note>
+上面列出的 `api/*.js` edge function 端点是旧模式，正在逐步被 sebuf proto-first 方式替代。当前推荐做法请参见 [Adding Endpoints](/adding-endpoints)。
+</Note>
+
+- Server relay 调用方：`server/worldmonitor/*` handlers
+- 可选的浏览器本地 fallback 调用方：`src/services/*`
+
+## 1) 最小生产配置
+
+在启用严格 relay 认证之前，请先设置这些变量。
+
+### Railway（relay）
+
+| 变量 | 必需 | 示例 | 说明 |
+| --- | --- | --- | --- |
+| `AISSTREAM_API_KEY` | 是 | `ais_...` | AIS 上游 WebSocket feed 所需。 |
+| `RELAY_SHARED_SECRET` | 是 | `wm_relay_prod_...` | 必须与 Vercel 端完全一致。 |
+| `RELAY_AUTH_HEADER` | 推荐 | `x-relay-key` | 如改了默认值，Vercel 端必须同步。 |
+
+### Vercel（proxy + server functions）
+
+| 变量 | 必需 | 示例 | 说明 |
+| --- | --- | --- | --- |
+| `WS_RELAY_URL` | 是 | `https://<railway-app>.up.railway.app` | server-side proxy 调用所用的 HTTPS relay 基础地址。 |
+| `RELAY_SHARED_SECRET` | 是 | `wm_relay_prod_...` | 必须与 Railway 端完全一致。 |
+| `RELAY_AUTH_HEADER` | 推荐 | `x-relay-key` | 用来转发 relay secret 的 header 名。 |
+
+## 2) 完整参数参考
+
+## Core Relay/Auth
+
+| 变量 | 设置位置 | 默认值 | 必需 | 作用 |
+| --- | --- | --- | --- | --- |
+| `AISSTREAM_API_KEY` | Railway | 无 | 是 | AIS 上游流的认证。 |
+| `VITE_AISSTREAM_API_KEY` | 仅本地开发 | 无 | 否 | 当 `AISSTREAM_API_KEY` 缺失时的本地 fallback，不建议用于生产。 |
+| `PORT` | Railway/local | `3004` | 否 | relay 进程监听端口。 |
+| `WS_RELAY_URL` | Vercel + server handlers | 无 | 是（依赖 relay 的功能） | Vercel/server 访问 Railway relay 的基础 URL。 |
+| `VITE_WS_RELAY_URL` | 浏览器（本地开发） | 无 | 否 | 开发环境中直连浏览器请求的 localhost fallback。 |
+| `RELAY_SHARED_SECRET` | Railway + Vercel | 空 | 生产环境必需 | 非公开 relay 路由的共享密钥。 |
+| `RELAY_AUTH_HEADER` | Railway + Vercel | `x-relay-key` | 否（但建议显式配置） | 携带 relay secret 的 header 名。 |
+| `ALLOW_UNAUTHENTICATED_RELAY` | Railway | `false` | 否 | 紧急开关。若为 `true`，生产可无 secret 启动。请保持 `false`。 |
+| `ALLOW_VERCEL_PREVIEW_ORIGINS` | Railway | `false` | 否 | 若为 `true`，允许 `*.vercel.app` origin 通过 CORS 检查。 |
+
+## Relay 相关功能开关
+
+| 变量 | 设置位置 | 默认值 | 必需 | 作用 |
+| --- | --- | --- | --- | --- |
+| `VITE_ENABLE_AIS` | 浏览器/客户端构建环境 | 启用（除非设为 `false`） | 否 | AIS UI / polling 的客户端功能开关。 |
+| `LOCAL_API_MODE` | 本地/服务器运行时 | 无 | 否 | 若包含 `sidecar`，部分 server handlers 会绕过 relay 直接连 OpenSky。 |
+| `WINGBITS_API_KEY` | Vercel/server | 无 | 否 | 军事增强/回退数据源，不是 relay 核心所必需。 |
+
+## OpenSky 上游认证
+
+| 变量 | 设置位置 | 默认值 | 必需 | 作用 |
+| --- | --- | --- | --- | --- |
+| `OPENSKY_CLIENT_ID` | Railway | 无 | 否（推荐） | OAuth client ID，用于提升 OpenSky 稳定性/限流。 |
+| `OPENSKY_CLIENT_SECRET` | Railway | 无 | 否（推荐） | 与 client ID 配对的 secret。 |
+
+## OpenSky 缓存 / 基数控制
+
+| 变量 | 设置位置 | 默认值 | 必需 | 作用 |
+| --- | --- | --- | --- | --- |
+| `OPENSKY_CACHE_MAX_ENTRIES` | Railway | `128` | 否 | 内存中保留的正向缓存 key 上限。 |
+| `OPENSKY_NEGATIVE_CACHE_MAX_ENTRIES` | Railway | `256` | 否 | 内存中保留的负向缓存 key（`429/5xx`）上限。 |
+| `OPENSKY_BBOX_QUANT_STEP` | Railway | `0.01` | 否 | bbox 缓存 key 复用的坐标量化步长。`0` 表示关闭量化。 |
+
+## AIS 管线调优
+
+| 变量 | 设置位置 | 默认值 | 必需 | 作用 |
+| --- | --- | --- | --- | --- |
+| `AIS_SNAPSHOT_INTERVAL_MS` | Railway | `5000`（最小 `2000`） | 否 | 重建 snapshot payload 的间隔。 |
+| `AIS_UPSTREAM_QUEUE_HIGH_WATER` | Railway | `4000`（最小 `500`） | 否 | 队列达到该值时暂停上游 socket。 |
+| `AIS_UPSTREAM_QUEUE_LOW_WATER` | Railway | `1000`（低于 HIGH_WATER 时会被钳制） | 否 | 队列降到该值以下时恢复上游 socket。 |
+| `AIS_UPSTREAM_QUEUE_HARD_CAP` | Railway | `8000`（必须大于 HIGH_WATER） | 否 | 超过该值后开始丢弃上游消息。 |
+| `AIS_UPSTREAM_DRAIN_BATCH` | Railway | `250`（最小 `1`） | 否 | 每个周期最多 drain 的消息数。 |
+| `AIS_UPSTREAM_DRAIN_BUDGET_MS` | Railway | `20`（最小 `2`） | 否 | 每个 drain 周期的 CPU 时间预算。 |
+
+## 限流 / 日志 / 指标
+
+| 变量 | 设置位置 | 默认值 | 必需 | 作用 |
+| --- | --- | --- | --- | --- |
+| `RELAY_RATE_LIMIT_WINDOW_MS` | Railway | `60000` | 否 | 全局限流窗口。 |
+| `RELAY_RATE_LIMIT_MAX` | Railway | `1200` | 否 | 每个 IP 每个窗口的默认最大请求数。 |
+| `RELAY_OPENSKY_RATE_LIMIT_MAX` | Railway | `600` | 否 | OpenSky 路由每个 IP 每窗口最大请求数。 |
+| `RELAY_RSS_RATE_LIMIT_MAX` | Railway | `300` | 否 | RSS 路由每个 IP 每窗口最大请求数。 |
+| `RELAY_LOG_THROTTLE_MS` | Railway | `10000` | 否 | 同一 key 重复日志事件之间的最小间隔。 |
+| `RELAY_METRICS_WINDOW_SECONDS` | Railway | `60`（最小 `10`） | 否 | `/metrics` 使用的滚动窗口。 |
+
+## 平台托管变量（不要手动设置）
+
+这些变量仅用于识别生产环境，通常由平台/运行时注入。
+
+| 变量 | 设置方 | 作用 |
+| --- | --- | --- |
+| `NODE_ENV` | 运行时/平台 | 用于检测生产模式。 |
+| `RAILWAY_ENVIRONMENT` | Railway | 用于检测生产 relay 环境。 |
+| `RAILWAY_PROJECT_ID` | Railway | 用于检测生产 relay 环境。 |
+| `RAILWAY_STATIC_URL` | Railway | 用于检测生产 relay 环境。 |
+
+## 3) 推荐起始值（高流量基线）
+
+这些是适合繁忙 relay 的安全起点：
+
+```bash
+# Auth + routing
+RELAY_SHARED_SECRET=<strong-random-secret>
+RELAY_AUTH_HEADER=x-relay-key
+WS_RELAY_URL=https://<your-railway-relay>.up.railway.app
+ALLOW_UNAUTHENTICATED_RELAY=false
+
+# OpenSky cache/cardinality
+OPENSKY_CACHE_MAX_ENTRIES=256
+OPENSKY_NEGATIVE_CACHE_MAX_ENTRIES=512
+OPENSKY_BBOX_QUANT_STEP=0.01
+
+# AIS pipeline
+AIS_SNAPSHOT_INTERVAL_MS=3000
+AIS_UPSTREAM_QUEUE_HIGH_WATER=5000
+AIS_UPSTREAM_QUEUE_LOW_WATER=1500
+AIS_UPSTREAM_QUEUE_HARD_CAP=10000
+AIS_UPSTREAM_DRAIN_BATCH=300
+AIS_UPSTREAM_DRAIN_BUDGET_MS=20
+
+# Rate limits + metrics
+RELAY_RATE_LIMIT_WINDOW_MS=60000
+RELAY_RATE_LIMIT_MAX=1200
+RELAY_OPENSKY_RATE_LIMIT_MAX=600
+RELAY_RSS_RATE_LIMIT_MAX=300
+RELAY_LOG_THROTTLE_MS=10000
+RELAY_METRICS_WINDOW_SECONDS=60
+```
+
+## 4) 如何验证配置
+
+Health：
+
+```bash
+curl -sS https://<relay>/health
+```
+
+Metrics（需要 relay 认证）：
+
+```bash
+curl -sS https://<relay>/metrics \
+  -H "x-relay-key: $RELAY_SHARED_SECRET"
+```
+
+或者：
+
+```bash
+curl -sS https://<relay>/metrics \
+  -H "Authorization: Bearer $RELAY_SHARED_SECRET"
+```
+
+期望检查项：
+
+- `/health` 中 `auth.sharedSecretEnabled` 为 `true`
+- `/metrics.opensky.hitRatio` 在负载下保持稳定且较高
+- `/metrics.ais.dropsPerSec` 在正常运行时保持 `0`
+- `/metrics.ais.queueMax` 明显低于 `AIS_UPSTREAM_QUEUE_HARD_CAP`
+

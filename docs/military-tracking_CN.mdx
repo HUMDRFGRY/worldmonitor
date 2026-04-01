@@ -1,0 +1,221 @@
+---
+title: "军事追踪"
+description: "全球战区中的军舰与军机识别、激增检测、外军存在监测和战略态势分析。"
+---
+
+<p align="center">
+  <a href="./military-tracking.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./military-tracking_CN.mdx"><strong>中文</strong></a>
+</p>
+
+WorldMonitor 提供军舰与军机的专门追踪能力，可根据 AIS/ADS-B 特征识别资产并监控活动模式。系统会检测激增事件、敏感区域内的外军存在，并评估多个战略战区中的打击能力。
+
+<Note>
+系统定义了 **10 个活跃冲突区**（Iran、Strait of Hormuz、Ukraine、Gaza、South Lebanon、Red Sea、Sudan、Myanmar、Korean DMZ、Pakistan-Afghanistan Border）以及 **4 个军事指挥热点**（INDO-PACIFIC、CENTCOM、EUCOM、ARCTIC）。不同子系统会按各自分析需要对这些区域做分组，因此本页里出现的战区数量会随上下文而变化。
+</Note>
+
+## 军舰识别
+
+军舰通过多种方式识别：
+
+**MMSI 分析**：海上移动业务标识码会编码船旗国。系统维护了 150+ 国家代码映射，用于识别海军舰艇：
+
+| MID 范围 | 国家 | 备注 |
+|-----------|------|------|
+| 338-339 | USA | 美国海军、海岸警卫队 |
+| 273 | Russia | 俄罗斯海军 |
+| 412-414 | China | 中国海军舰艇 |
+| 232-235 | UK | 英国皇家海军 |
+| 226-228 | France | 法国海军 |
+
+**已知舰艇数据库**：维护了 50+ 艘命名舰艇的清单，当 AIS 直接广播舰名时可进行正向识别：
+
+| 类别 | 追踪舰艇 |
+|------|----------|
+| **美国航母** | 全部 11 艘 Nimitz/Ford 级（CVN-68 到 CVN-78） |
+| **英国航母** | HMS Queen Elizabeth (R08)、HMS Prince of Wales (R09) |
+| **中国航母** | Liaoning (16)、Shandong (17)、Fujian (18) |
+| **俄罗斯航母** | Admiral Kuznetsov |
+| **知名驱逐舰** | USS Zumwalt (DDG-1000)、HMS Defender (D36)、HMS Duncan (D37) |
+| **科研/情报船** | USNS Victorious (T-AGOS-19)、USNS Impeccable (T-AGOS-23)、Yuan Wang |
+
+**舰艇分类算法**：
+
+1. 先将舰名与已知数据库比对（含舷号与舰名）
+2. 若未命中，再回退到 AIS 船型代码
+3. 使用 MMSI 模式匹配国家/运营方
+4. 对带海军前缀的舰名（USS、HMS、HMCS、HMAS、INS、JS、ROKS、TCG）推断为军用
+
+**呼号模式**：已知军用呼号前缀（NAVY、GUARD 等）可作为二级识别信号。
+
+## 海上咽喉点监测
+
+系统监控 12 个关键海上咽喉点，并支持可配置探测半径：
+
+| 咽喉点 | 战略意义 |
+|--------|----------|
+| Strait of Hormuz | 波斯湾出海口、石油运输通道 |
+| Suez Canal | 地中海-红海连接线 |
+| Strait of Malacca | 太平洋-印度洋航线 |
+| Taiwan Strait | 两岸紧张局势 |
+| Bosphorus | 黑海出海口 |
+| GIUK Gap | 北大西洋潜艇航线 |
+
+当军舰进入这些区域时，系统会生成接近告警。
+
+## 海军基地接近监测
+
+系统会追踪 12 个主要海军基地附近的活动：
+
+- **Norfolk**（美国）- 大西洋舰队总部
+- **Pearl Harbor**（美国）- 太平洋舰队基地
+- **Sevastopol**（俄罗斯）- 黑海舰队
+- **Qingdao**（中国）- 北海舰队
+- **Yokosuka**（日本）- 美国第 7 舰队
+
+距离这些基地 50km 内的舰艇会被标记，用于发现异常活动模式。
+
+## 军机追踪（OpenSky）
+
+军事飞机通过 OpenSky Network 的 ADS-B 数据追踪。OpenSky 会阻止来自云厂商 IP（Vercel、Railway、AWS）的未认证请求，因此该功能需要带凭证的 relay 服务器。
+
+**认证方式**：
+
+- 在 [opensky-network.org](https://opensky-network.org) 注册免费账号
+- 在账号设置中创建 API client，获得 `OPENSKY_CLIENT_ID` 和 `OPENSKY_CLIENT_SECRET`
+- relay 使用 **OAuth2 client credentials flow** 获取 Bearer token
+- token 会缓存 30 分钟并自动刷新
+
+**识别方式**：
+
+- **呼号匹配**：RCH、REACH、DUKE 等军用呼号前缀
+- **ICAO 十六进制区段**：各国分配给军机的编号范围
+- **高度/速度特征**：异常飞行特征
+
+**追踪指标**：
+
+- 位置历史（5 分钟窗口、20 点轨迹）
+- 高度与地速
+- 航向与航迹
+
+**活动检测**：
+
+- 编队活动（多架军机接近）
+- 异常模式（盘旋、侦察轨迹）
+- 咽喉点穿越
+
+## 舰艇位置历史
+
+系统会为被追踪舰艇维护位置轨迹：
+
+- 每个 MMSI 保留 **30 点历史**
+- **10 分钟** 清理一次过期数据
+- 地图上显示最近移动轨迹
+
+这样可以检测逗留、绕圈或其他异常行为。
+
+## 军事激增检测
+
+系统持续监控军机活动，以识别 **激增事件**，即相对于正常运行基线的显著上升，可能意味着动员、演习或危机响应。
+
+### 战区分类
+
+系统按五个地理战区分析军机活动（这是完整冲突区/热点集合中的一部分，仅覆盖 ADS-B 数据较可靠的区域）：
+
+| 战区 | 覆盖范围 | 重点区域 |
+|------|----------|----------|
+| **中东** | 波斯湾、黎凡特、阿拉伯半岛 | 美国 CENTCOM 活动、伊朗空域 |
+| **东欧** | 乌克兰、波罗的海、黑海 | 北约-俄罗斯边境活动 |
+| **西欧** | 中欧、北海 | 北约演习、空中警巡 |
+| **太平洋** | 东亚、东南亚 | 台湾海峡、朝鲜半岛 |
+| **非洲之角** | 红海、东非 | 反海盗、胡塞活动 |
+
+### 飞机分类
+
+按呼号模式将飞机分类：
+
+| 类型 | 呼号模式 | 意义 |
+|------|----------|------|
+| **运输机** | RCH、REACH、MOOSE、HERKY、EVAC、DUSTOFF | 空运、部队调动 |
+| **战斗机** | VIPER、EAGLE、RAPTOR、STRIKE | 战斗巡逻、拦截 |
+| **侦察机** | SIGNT、COBRA、RIVET、JSTARS | 情报搜集 |
+
+### 基线计算
+
+系统会为每个战区维护滚动 48 小时活动基线：
+
+- 至少需要 6 个数据点才能得到可靠基线
+- 若数据不足，默认基线为：3 架运输机、2 架战斗机、1 架侦察机
+- 活动低于基线 50% 时，视为进入收缩状态
+
+### 激增检测算法
+
+```text
+surge_ratio = current_count / baseline
+surge_triggered = (
+  ratio >= 2.0 AND
+  transport >= 5 AND
+  fighters >= 4
+)
+```
+
+### 激增信号输出
+
+当检测到激增时，系统会生成 `military_surge` 信号：
+
+| 字段 | 内容 |
+|------|------|
+| **Location** | 战区中心点坐标 |
+| **Message** | "Military Transport Surge in [Theater]: [X] aircraft (baseline: [Y])" |
+| **Details** | 飞机类型、附近基地（150km 半径）、主要呼号 |
+| **Confidence** | 基于激增比率（0.6-0.9） |
+
+### 外军存在检测
+
+除了激增检测，系统还会监控 **敏感地区内的外军飞机**，即某国飞机出现在地缘政治上重要、且通常不在其作战范围内的区域。
+
+**敏感区域**
+
+系统追踪 18 个具有战略意义的地理区域：
+
+| 区域 | 敏感级别 | 监测内容 |
+|------|----------|----------|
+| **Taiwan Strait** | Critical | PLAAF 活动、美国穿越 |
+| **Persian Gulf** | Critical | 伊朗、美国及海湾国家活动 |
+| **Baltic Sea** | High | 俄罗斯靠近北约活动 |
+| **Black Sea** | High | 北约侦察、俄罗斯活动 |
+| **South China Sea** | High | PLAAF 巡逻、美国航行自由行动 |
+| **Korean Peninsula** | High | 朝鲜活动、美国-韩国演习 |
+| **Eastern Mediterranean** | Medium | 俄罗斯海军航空兵、北约 |
+| **Arctic** | Medium | 俄罗斯轰炸机巡逻 |
+
+**检测逻辑**
+
+对每个敏感区域，系统会：
+
+1. 识别区域内所有军机
+2. 按运营国分组
+3. 排除“本土区域”运营方（例如波罗的海中的俄罗斯 VKS 不会触发告警）
+4. 应用集中阈值（通常每个运营方 2-3 架）
+
+**关键组合**
+
+某些“运营方 + 区域”组合会触发 **Critical** 级别告警：
+
+| 运营方 | 区域 | 原因 |
+|--------|------|------|
+| PLAAF | Taiwan Strait | 可能的入侵演练 |
+| Russian VKS | Arctic | 核轰炸机巡逻 |
+| USAF | Persian Gulf | 可能的打击编组 |
+
+**信号输出**
+
+外军存在检测会生成 `foreign_military_presence` 信号：
+
+| 字段 | 内容 |
+|------|------|
+| **Title** | "Foreign Military Presence: [Region]" |
+| **Details** | "[Operator] aircraft detected: [count] [types]" |
+| **Severity** | 基于组合的 Critical/High/Medium |
+| **Confidence** | 0.7-0.95，取决于飞机数量和类型多样性 |
+

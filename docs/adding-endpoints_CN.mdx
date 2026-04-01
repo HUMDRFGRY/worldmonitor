@@ -1,0 +1,266 @@
+---
+title: "添加 API 端点"
+description: "World Monitor 中所有 JSON API 端点都必须使用 sebuf。本指南将演示如何向现有服务添加新的 RPC，以及如何添加一个全新的服务。"
+---
+
+<p align="center">
+  <a href="./adding-endpoints.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./adding-endpoints_CN.mdx"><strong>中文</strong></a>
+</p>
+
+World Monitor 中所有 JSON API 端点都**必须**使用 sebuf。不要再创建独立的 `api/*.js` 文件 - 旧模式已经弃用，并且正在移除。
+
+本指南会演示如何向现有服务添加一个新的 RPC，以及如何添加一个全新的服务。
+
+> **重要：** 在修改任何 `.proto` 文件后，你**必须**在构建或推送前运行 `make generate`。`src/generated/` 中生成的 TypeScript 文件已经提交到仓库，必须与 proto 定义保持同步。目前 CI 还不会自动运行生成 - 在我们把它接入流水线之前，这个责任由你承担（参见 [#200](https://github.com/koala73/worldmonitor/issues/200)）。
+
+## 前置条件
+
+你需要安装 **Go 1.21+** 和 **Node.js 18+**。其他内容都会自动安装：
+
+```bash
+make install    # 仅需执行一次：安装 buf、sebuf 插件、npm 依赖、proto 依赖
+```
+
+这会安装：
+
+- **buf** - proto lint、依赖管理和代码生成编排器
+- **protoc-gen-ts-client** - 生成 TypeScript 客户端类（来自 [sebuf](https://github.com/SebastienMelki/sebuf)）
+- **protoc-gen-ts-server** - 生成 TypeScript 服务端 handler 接口（来自 sebuf）
+- **protoc-gen-openapiv3** - 生成 OpenAPI v3 规范（来自 sebuf）
+- **npm dependencies** - 所有 Node.js 包
+
+从仓库根目录运行代码生成：
+
+```bash
+make generate   # 根据 protos 重新生成所有 TypeScript + OpenAPI
+```
+
+这会为每个服务生成三个输出：
+
+- `src/generated/client/{domain}/v1/service_client.ts` - 前端使用的类型化 fetch 客户端
+- `src/generated/server/{domain}/v1/service_server.ts` - 后端的 handler 接口 + 路由工厂
+- `docs/api/{Domain}Service.openapi.yaml` + `.json` - OpenAPI v3 文档
+
+## 向现有服务添加 RPC
+
+示例：给 `SeismologyService` 添加 `GetEarthquakeDetails`。
+
+### 1. 定义请求/响应消息
+
+创建 `proto/worldmonitor/seismology/v1/get_earthquake_details.proto`：
+
+```protobuf
+syntax = "proto3";
+package worldmonitor.seismology.v1;
+
+import "buf/validate/validate.proto";
+import "worldmonitor/seismology/v1/earthquake.proto";
+
+// GetEarthquakeDetailsRequest specifies which earthquake to retrieve.
+message GetEarthquakeDetailsRequest {
+  // USGS event identifier (e.g., "us7000abcd").
+  string earthquake_id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.min_len = 1,
+    (buf.validate.field).string.max_len = 100
+  ];
+}
+
+// GetEarthquakeDetailsResponse contains the full earthquake record.
+message GetEarthquakeDetailsResponse {
+  // The earthquake matching the requested ID.
+  Earthquake earthquake = 1;
+}
+```
+
+### 2. 把 RPC 加到服务定义中
+
+编辑 `proto/worldmonitor/seismology/v1/service.proto`：
+
+```protobuf
+import "worldmonitor/seismology/v1/get_earthquake_details.proto";
+
+service SeismologyService {
+  // ... existing RPCs ...
+
+  // GetEarthquakeDetails retrieves a single earthquake by its USGS event ID.
+  rpc GetEarthquakeDetails(GetEarthquakeDetailsRequest) returns (GetEarthquakeDetailsResponse) {
+    option (sebuf.http.config) = {path: "/get-earthquake-details"};
+  }
+}
+```
+
+### 3. lint 并生成
+
+```bash
+make check   # 一步完成 lint + generate
+```
+
+此时 `npx tsc --noEmit` 会**失败**，因为 handler 还没有实现新方法。这是设计如此 - 编译器会强制你完成契约。
+
+### 4. 实现 handler
+
+创建 `server/worldmonitor/seismology/v1/get-earthquake-details.ts`：
+
+```typescript
+import type {
+  SeismologyServiceHandler,
+  ServerContext,
+  GetEarthquakeDetailsRequest,
+  GetEarthquakeDetailsResponse,
+} from '../../../../src/generated/server/worldmonitor/seismology/v1/service_server';
+
+export const getEarthquakeDetails: SeismologyServiceHandler['getEarthquakeDetails'] = async (
+  _ctx: ServerContext,
+  req: GetEarthquakeDetailsRequest,
+): Promise<GetEarthquakeDetailsResponse> => {
+  const response = await fetch(
+    `https://earthquake.usgs.gov/earthquakes/feed/v1.0/detail/${req.earthquakeId}.geojson`,
+  );
+  if (!response.ok) {
+    throw new Error(`USGS API error: ${response.status}`);
+  }
+  const f: any = await response.json();
+  return {
+    earthquake: {
+      id: f.id,
+      place: f.properties.place || '',
+      magnitude: f.properties.mag ?? 0,
+      depthKm: f.geometry.coordinates[2] ?? 0,
+      location: {
+        latitude: f.geometry.coordinates[1],
+        longitude: f.geometry.coordinates[0],
+      },
+      occurredAt: f.properties.time,
+      sourceUrl: f.properties.url || '',
+    },
+  };
+};
+```
+
+### 5. 把它接入 handler 重新导出
+
+编辑 `server/worldmonitor/seismology/v1/handler.ts`：
+
+```typescript
+import type { SeismologyServiceHandler } from '../../../../src/generated/server/worldmonitor/seismology/v1/service_server';
+
+import { listEarthquakes } from './list-earthquakes';
+import { getEarthquakeDetails } from './get-earthquake-details';
+
+export const seismologyHandler: SeismologyServiceHandler = {
+  listEarthquakes,
+  getEarthquakeDetails,
+};
+```
+
+### 6. 验证
+
+```bash
+npx tsc --noEmit   # 应该零错误通过
+```
+
+路由已经是 live 的。`createSeismologyServiceRoutes()` 会自动拾取这个新的 RPC - 不需要修改 `api/[[...path]].ts` 或 `vite.config.ts`。
+
+### 7. 检查生成的文档
+
+打开 `docs/api/SeismologyService.openapi.yaml` - 新端点应该会出现在那里，并带有 proto 注解中的所有校验约束。
+
+## 添加新服务
+
+示例：添加一个 `SanctionsService`。
+
+### 1. 创建 proto 目录
+
+```
+proto/worldmonitor/sanctions/v1/
+```
+
+### 2. 定义实体消息
+
+创建 `proto/worldmonitor/sanctions/v1/sanctions_entry.proto`：
+
+```protobuf
+syntax = "proto3";
+package worldmonitor.sanctions.v1;
+
+import "buf/validate/validate.proto";
+import "sebuf/http/annotations.proto";
+
+// SanctionsEntry represents a single entity on a sanctions list.
+message SanctionsEntry {
+  // Unique identifier.
+  string id = 1 [
+    (buf.validate.field).required = true,
+    (buf.validate.field).string.min_len = 1
+  ];
+  // Name of the sanctioned entity or individual.
+  string name = 2;
+  // Issuing authority (e.g., "OFAC", "EU", "UN").
+  string authority = 3;
+  // ISO 3166-1 alpha-2 country code of the target.
+  string country_code = 4;
+  // Date the sanction was imposed, as Unix epoch milliseconds.
+  int64 imposed_at = 5 [(sebuf.http.int64_encoding) = INT64_ENCODING_NUMBER];
+}
+```
+
+### 3. 定义请求/响应消息
+
+创建 `proto/worldmonitor/sanctions/v1/list_sanctions.proto`：
+
+```protobuf
+syntax = "proto3";
+package worldmonitor.sanctions.v1;
+
+import "buf/validate/validate.proto";
+import "worldmonitor/core/v1/pagination.proto";
+import "worldmonitor/sanctions/v1/sanctions_entry.proto";
+
+// ListSanctionsRequest specifies filters for sanctions data.
+message ListSanctionsRequest {
+  // Filter by issuing authority (e.g., "OFAC"). Empty returns all.
+  string authority = 1;
+  // Filter by country code.
+  string country_code = 2 [(buf.validate.field).string.max_len = 2];
+  // Pagination parameters.
+  worldmonitor.core.v1.PaginationRequest pagination = 3;
+}
+
+// ListSanctionsResponse contains the matching sanctions entries.
+message ListSanctionsResponse {
+  // The list of sanctions entries.
+  repeated SanctionsEntry entries = 1;
+  // Pagination metadata.
+  worldmonitor.core.v1.PaginationResponse pagination = 2;
+}
+```
+
+### 4. 定义服务
+
+创建 `proto/worldmonitor/sanctions/v1/service.proto`：
+
+```protobuf
+syntax = "proto3";
+package worldmonitor.sanctions.v1;
+
+import "sebuf/http/annotations.proto";
+import "worldmonitor/sanctions/v1/list_sanctions.proto";
+
+// SanctionsService provides APIs for international sanctions monitoring.
+service SanctionsService {
+  option (sebuf.http.service_config) = {base_path: "/api/sanctions/v1"};
+
+  // ListSanctions retrieves sanctions entries matching the given filters.
+  rpc ListSanctions(ListSanctionsRequest) returns (ListSanctionsResponse) {
+    option (sebuf.http.config) = {path: "/list-sanctions"};
+  }
+}
+```
+
+### 5. 生成
+
+```bash
+make check   # 一步完成 lint + generate
+```

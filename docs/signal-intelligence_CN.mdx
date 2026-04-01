@@ -1,0 +1,265 @@
+---
+title: "信号情报"
+description: "驱动 World Monitor 分析引擎的信号检测、实体关联、来源排序和情报聚合。"
+---
+
+<p align="center">
+  <a href="./signal-intelligence.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./signal-intelligence_CN.mdx"><strong>中文</strong></a>
+</p>
+
+## 信号情报
+
+仪表盘会持续分析数据流，以检测显著模式和异常。信号会连同置信分一起显示在头部徽标（⚡）中。
+
+### 情报发现徽标
+
+头部会显示一个 **Intelligence Findings** 徽标，把两类告警合并起来：
+
+| 告警类型 | 来源 | 示例 |
+|------------|--------|----------|
+| **Correlation Signals** | 跨来源模式检测 | 速度激增、市场背离、预测领先 |
+| **Unified Alerts** | 模块生成的告警 | CII 激增、地理收敛、基础设施级联 |
+
+**交互**：点击徽标，或者点击单个告警，都会打开一个详情弹窗，显示：
+
+- 完整告警描述与上下文
+- 组件拆分（用于复合告警）
+- 受影响国家或区域
+- 置信分和优先级
+- 时间戳和趋势方向
+
+这样就为所有情报发现提供了一个统一的指挥中心，无论它们是由相关性分析还是模块阈值检测生成的。
+
+### 信号类型
+
+系统会跨新闻、市场、军事和基础设施领域检测 12 种不同的信号类型：
+
+**新闻与来源信号**
+
+| 信号 | 触发条件 | 含义 |
+|--------|---------|---------------|
+| **◉ Convergence** | 30 分钟内有 3+ 种来源类型报道同一故事 | 多个独立渠道都在确认同一事件 - 重要性更高 |
+| **△ Triangulation** | Wire + Government + Intel 来源一致 | “权威三角” - 当官方、通讯社和防务专家都在报同一件事 |
+| **🔥 Velocity Spike** | 话题提及率翻倍，且每小时 6+ 个来源 | 故事正在新闻生态中迅速加速 |
+
+**市场信号**
+
+| 信号 | 触发条件 | 含义 |
+|--------|---------|---------------|
+| **🔮 Prediction Leading** | 预测市场在新闻覆盖很少时移动 5%+ | 市场在给尚未体现在新闻里的信息定价 |
+| **📰 News Leads Markets** | 新闻速度高，但市场没有对应波动 | 突发新闻尚未计价 - 可能存在错价 |
+| **✓ Market Move Explained** | 价格移动 2%+ 且有相关新闻覆盖 | 价格动作有明确新闻催化剂 - 找到了相关实体故事 |
+| **📊 Silent Divergence** | 价格移动 2%+，实体搜索后仍找不到相关新闻 | 穷尽搜索后仍无解释的价格动作 - 可能是内幕或算法驱动 |
+| **📈 Sector Cascade** | 多个相关板块同向移动 | 市场反应在相关行业之间级联传播 |
+
+**基础设施与能源信号**
+
+| 信号 | 触发条件 | 含义 |
+|--------|---------|---------------|
+| **🛢 Flow Drop** | 检测到管道流量中断关键词 | 实物大宗商品供应受限 - 可能预示价格飙升 |
+| **🔁 Flow-Price Divergence** | 有管道中断新闻，但油价没有对应变动 | 能源供应中断尚未被计价 - 潜在信息优势 |
+
+**地缘政治与军事信号**
+
+| 信号 | 触发条件 | 含义 |
+|--------|---------|---------------|
+| **🌍 Geographic Convergence** | 同一 1°×1° 网格中有 3+ 种事件类型 | 多个独立数据流都指向同一地点 - 区域活动升温 |
+| **🔺 Hotspot Escalation** | 多组件评分超过阈值且趋势上升 | 热点在新闻、CII、收敛和军事数据中都显示出升级 |
+| **✈ Military Surge** | 战区内运输机/战斗机活动达到基线 2 倍 | 异常军事空运集中 - 可能是部署或危机响应 |
+
+### 工作方式
+
+相关性引擎会维护以下内容的滚动快照：
+
+- 新闻主题频次（按关键词提取）
+- 市场价格变化
+- 预测市场概率
+
+每个刷新周期都会把当前状态与前一快照比较，并应用阈值和去重逻辑来避免告警疲劳。信号会带有置信分（60-95%），根据模式强度而定。
+
+### 面向实体的相关性
+
+信号引擎使用一个 **66 个实体的知识库** 来智能关联市场波动与新闻覆盖。系统不是简单做关键词匹配，而是理解 “AVGO”（ticker）关联 “Broadcom”（公司）、“AI chips”（板块）以及 “Nvidia”（竞争对手）这类实体。
+
+#### 实体知识库
+
+注册表中的每个实体都包含：
+
+| 字段 | 用途 | 示例 |
+|-------|---------|---------|
+| **ID** | 规范化标识符 | `broadcom` |
+| **Name** | 显示名称 | `Broadcom Inc.` |
+| **Type** | 分类 | `company`、`commodity`、`crypto`、`country`、`person` |
+| **Aliases** | 其他名称 | `AVGO`、`Broadcom`、`Broadcom Inc` |
+| **Keywords** | 相关主题 | `AI chips`、`semiconductors`、`VMware` |
+| **Sector** | 行业分类 | `semiconductors` |
+| **Related** | 关联实体 | `nvidia`、`intel`、`amd` |
+
+#### 实体类型
+
+| 类型 | 数量 | 示例 |
+|------|-------|----------|
+| **Companies** | 38 | Nvidia、Apple、Tesla、Broadcom、Boeing、Lockheed Martin、TSMC、Rheinmetall |
+| **Indices** | 3 | S&P 500、Dow Jones、NASDAQ |
+| **Sectors** | 5 | Technology (XLK)、Finance (XLF)、Energy (XLE)、Healthcare (XLV)、Semiconductors (SMH) |
+| **Commodities** | 6 | Oil (WTI)、Gold、Natural Gas、Copper、Silver、VIX |
+| **Crypto** | 3 | Bitcoin、Ethereum、Solana |
+| **Countries** | 11 | China、Russia、Iran、Israel、Ukraine、Taiwan、Saudi Arabia、UAE、Qatar、Turkey、Egypt |
+
+#### 实体匹配如何工作
+
+当市场出现显著波动（≥2%）时，系统会：
+
+1. **查找 ticker** 在实体注册表中的映射（例如 `AVGO` → `broadcom`）
+2. **收集全部标识符**：别名、关键词、板块同行、关联实体
+3. **扫描所有新闻聚类**，匹配任意标识符
+4. **按匹配类型打分**：
+   - 别名匹配（精确名称）：95%
+   - 关键词匹配（主题）：70%
+   - 关联实体匹配：60%
+
+如果找到相关新闻 → 输出 **“Market Move Explained”** 信号，并附上新闻标题。
+如果穷尽搜索后仍无相关 → 输出 **“Silent Divergence”** 信号。
+
+#### 示例：Broadcom +2.5%
+
+```
+1. 识别到 ticker AVGO 变动 +2.5%
+2. 实体查找：broadcom
+3. 搜索词：["Broadcom", "AVGO", "AI chips", "semiconductors", "VMware", "nvidia", "intel", "amd"]
+4. 新闻扫描命中：“Broadcom AI Revenue Beats Estimates”
+5. 结果：“✓ Market Move Explained: Broadcom AI Revenue Beats Estimates”
+```
+
+如果没有这个系统，同样的波动只会产生一个泛泛的 “Silent Divergence: AVGO +2.5%” 信号。
+
+#### 板块覆盖
+
+实体注册表覆盖了具有战略意义的行业：
+
+| 行业 | 示例 | 跟踪关键词 |
+|--------|----------|------------------|
+| **Technology** | Apple、Microsoft、Nvidia、Google、Meta、TSMC | AI、cloud、chips、datacenter、streaming |
+| **Defense & Aerospace** | Lockheed Martin、Raytheon、Northrop Grumman、Boeing、Rheinmetall、Airbus | F-35、missiles、drones、tanks、defense contracts |
+| **Semiconductors** | ASML、Samsung、AMD、Intel、Broadcom | Lithography、EUV、foundry、fab、wafer |
+| **Critical Minerals** | Albemarle、SQM、MP Materials、Freeport-McMoRan | Lithium、rare earth、cobalt、copper |
+| **Finance** | JPMorgan、Berkshire Hathaway、Visa、Mastercard | Banking、credit、investment、interest rates |
+| **Healthcare** | Eli Lilly、Novo Nordisk、UnitedHealth、J&J | Pharma、drugs、GLP-1、obesity、diabetes |
+| **Energy** | Exxon、Chevron、ConocoPhillips | Oil、gas、drilling、refinery、LNG |
+| **Consumer** | Tesla、Walmart、Costco、Home Depot | EV、retail、grocery、housing |
+
+这种广泛覆盖使系统能够跨多种地缘政治和市场事件进行相关性检测。
+
+### 实体注册表架构
+
+实体注册表是一个拥有 66 个实体并带丰富元数据的知识库，用于智能相关性分析：
+
+```typescript
+{
+  id: 'NVDA',           // Unique identifier
+  name: 'Nvidia',       // Display name
+  type: 'company',      // company | country | index | commodity | currency
+  sector: 'semiconductors',
+  searchTerms: ['Nvidia', 'NVDA', 'Jensen Huang', 'H100', 'CUDA'],
+  aliases: ['nvidia', 'nvda'],
+  competitors: ['AMD', 'INTC'],
+  related: ['AVGO', 'TSM', 'ASML'],  // Related entities
+  country: 'US',        // Headquarters/origin
+}
+```
+
+**实体类型**：
+
+| 类型 | 数量 | 使用场景 |
+|------|-------|----------|
+| `company` | 38 | 市场-新闻相关性、板块分析 |
+| `country` | 11 | 焦点点检测、CII 评分 |
+| `index` | 3 | 市场总览、区域追踪 |
+| `commodity` | 6 | 能源与矿产相关性 |
+| `sector` | 5 | 板块级联分析 |
+| `crypto` | 3 | 加密货币相关性 |
+
+**查找索引**：
+
+注册表提供多个快速实体解析路径：
+
+| 索引 | 查询示例 | 使用场景 |
+|-------|---------------|----------|
+| `byId` | `'NVDA'` → Nvidia 实体 | 直接通过 ticker 查找 |
+| `byAlias` | `'nvidia'` → Nvidia 实体 | 不区分大小写的名称匹配 |
+| `byKeyword` | `'AI chips'` → [Nvidia, AMD, Intel] | 新闻关键词提取 |
+| `bySector` | `'semiconductors'` → 所有芯片公司 | 板块级联分析 |
+| `byCountry` | `'US'` → 所有美国实体 | 国家级聚合 |
+
+### 信号去重
+
+为防止告警疲劳，信号会使用**按类型的 TTL（time-to-live）**做去重：
+
+| 信号类型 | TTL | 理由 |
+|-------------|-----|-----------|
+| **Silent Divergence** | 6 小时 | 市场波动会持续；不要对同一股票反复告警 |
+| **Flow-Price Divergence** | 6 小时 | 能源事件展开较慢 |
+| **Explained Market Move** | 6 小时 | 同一相关性不应重复 |
+| **Prediction Leading** | 2 小时 | 预测市场更新更频繁 |
+| **Other signals** | 30 分钟 | 快速变化事件的默认值 |
+
+市场信号使用**仅符号 key**（例如 `silent_divergence:AVGO`），而不是包含价格变动。这意味着某只股票先涨 2.5% 再涨 3.0% 时，不会触发重复告警 - 第一个告警已经覆盖了这条故事。
+
+---
+
+## 来源情报
+
+并非所有来源都一样。系统使用双重分类来优先处理权威信息。
+
+### 来源层级（权威排名）
+
+| 层级 | 来源 | 特征 |
+|------|---------|-----------------|
+| **Tier 1** | Reuters、AP、AFP、Bloomberg、White House、Pentagon | 通讯社与官方政府 - 最快、最可靠 |
+| **Tier 2** | BBC、Guardian、NPR、Al Jazeera、CNBC、Financial Times | 主流媒体 - 编辑标准高，但有一定延迟 |
+| **Tier 3** | Defense One、Bellingcat、Foreign Policy、MIT Tech Review | 领域专家 - 深度高、范围更窄 |
+| **Tier 4** | Hacker News、The Verge、VentureBeat、聚合器 | 有价值的信号，但需要印证 |
+
+当多个来源报道同一故事时，会显示**最低层级**（最权威）的来源作为主来源，其余作为印证来源列出。
+
+### 来源类型（分类）
+
+来源也按功能分类，用于三角测量：
+
+- **Wire** - 新闻通讯社（Reuters、AP、AFP、Bloomberg）
+- **Gov** - 官方政府（White House、Pentagon、State Dept、Fed、SEC）
+- **Intel** - 防务/安全专家（Defense One、Bellingcat、Krebs）
+- **Mainstream** - 主流媒体（BBC、Guardian、NPR、Al Jazeera）
+- **Market** - 财经媒体（CNBC、MarketWatch、Financial Times）
+- **Tech** - 科技报道（Hacker News、Ars Technica、MIT Tech Review）
+
+### 宣传风险指标
+
+仪表盘会用视觉方式标记具有已知国家背景或宣传风险的来源，让用户可以适当加权这些媒体的信息。
+
+**风险等级**
+
+| 等级 | 视觉 | 含义 |
+|-------|--------|---------|
+| **High** | ⚠ State Media (red) | 直接国家控制或所有 |
+| **Medium** | ! Caution (orange) | 显著国家影响或资助 |
+| **Low** | (none) | 独立编辑控制 |
+
+**已标记来源**
+
+| 来源 | 风险等级 | 国家归属 | 说明 |
+|--------|------------|-------------------|-------|
+| **Xinhua** | High | China (CCP) | PRC 官方通讯社 |
+| **TASS** | High | Russia | 国有通讯社 |
+| **RT** | High | Russia | 在美国注册为 foreign agent |
+| **CGTN** | High | China (CCP) | 中国国际电视台 |
+| **PressTV** | High | Iran | IRIB 子机构 |
+| **Al Jazeera** | Medium | Qatar | 由卡塔尔政府资助 |
+| **TRT World** | Medium | Turkey | 土耳其国有广播机构 |
+
+**显示位置**
+
+宣传风险徽标会出现在：
+
+- **聚类主来源**：主来源名称旁的徽标

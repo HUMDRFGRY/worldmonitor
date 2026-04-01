@@ -1,0 +1,168 @@
+---
+title: "金融与市场数据"
+description: "World Monitor 中的市场雷达、海湾 FDI 追踪、稳定币监控、能源分析和贸易政策情报。"
+---
+
+<p align="center">
+  <a href="./finance-data.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./finance-data_CN.mdx"><strong>中文</strong></a>
+</p>
+
+如需查看高级股票分析产品图层，请参见：
+
+- [Premium Finance](/premium-finance)
+- [Premium Finance Search Layer](/premium-finance-search)
+
+---
+
+## 市场监控
+
+### 可自定义市场观察列表
+
+Markets 面板支持用户自定义股票和商品符号列表，让分析人员可以追踪默认指数集之外的特定标的。观察列表支持多种格式：
+
+- **指数符号**：`^GSPC`、`^DJI`、`^IXIC`
+- **股票代码**：`AAPL`、`BRK-B`、`NVDA`
+- **大宗商品**：`GC=F`（黄金）、`CL=F`（原油）
+- **加密货币对**：`BTC-USD`、`ETH-USD`
+- **友好标签**：`TSLA|Tesla Inc`（用管道分隔的显示名）
+
+符号通过 Markets 面板设置图标中的弹窗输入。输入支持逗号分隔、换行分隔或 `SYMBOL|Label` 格式。观察列表状态保存在 localStorage 中，key 为 `wm-market-watchlist-v1`（最多 50 个符号，自动去重）。变更会发出 `wm-market-watchlist-changed` CustomEvent，以便在面板间实时同步，而无需刷新页面。
+
+### 宏观信号分析（Market Radar）
+
+Market Radar 面板会从 7 个独立信号计算一个综合 BUY/CASH 结论，这些信号全部来自免费 API（Yahoo Finance、mempool.space、alternative.me）：
+
+| 信号 | 计算方式 | 看涨条件 |
+| ------------------- | ------------------------------------- | --------------------------- |
+| **Liquidity** | JPY/USD 30 天变化率 | ROC > -2%（没有日元挤压） |
+| **Flow Structure** | BTC 5 天回报 vs QQQ 5 天回报 | 差值 < 5%（同步） |
+| **Macro Regime** | QQQ 20 天 ROC vs XLP 20 天 ROC | QQQ 跑赢（risk-on） |
+| **Technical Trend** | BTC vs SMA50 + 30 天 VWAP | 同时高于两者（看涨） |
+| **Hash Rate** | 比特币挖矿算力 30 天变化 | 增长 > 3% |
+| **Mining Cost** | BTC 价格 vs 挖矿成本模型 | 价格 > $60K（盈利） |
+| **Fear & Greed** | alternative.me 情绪指数 | 数值 > 50 |
+
+整体结论要求已知信号中至少 57% 看涨（BUY），否则为 CASH。未知数据的信号会从分母中排除。
+
+**VWAP 计算** - 成交量加权平均价基于 30 天窗口内对齐的价格/成交量对计算。只要价格或成交量为 null，就会连同另一项一起排除，以防索引错位：
+
+```
+VWAP = Σ(price × volume) / Σ(volume)    for last 30 trading days
+```
+
+**Mayer Multiple**（BTC 价格 / SMA200）提供长期估值背景 - 历史上，高于 2.4 通常表示过热，而低于 0.8 则表示严重低估。
+
+---
+
+## 投资与 FDI
+
+### 海湾 FDI 投资数据库
+
+Finance 变体包含一个精心整理的数据库，记录了沙特和阿联酋在全球关键基础设施中的 64 项重大外国直接投资。投资覆盖 12 个领域：
+
+| 领域 | 示例 |
+| ----------------- | ---------------------------------------------------------------------------------------------------- |
+| **Ports** | DP World 的 11 个全球集装箱码头、AD Ports（Khalifa、Al-Sokhna、Karachi）、Saudi Mawani 港口 |
+| **Energy** | ADNOC Ruwais LNG（960 万吨/年）、Aramco 的 Motiva Port Arthur 炼厂（63 万桶/日）、ACWA Power 可再生能源 |
+| **Manufacturing** | Mubadala 的 GlobalFoundries（82% 股权，全球第三大晶圆代工厂）、Borealis（75%）、SABIC（70%） |
+| **Renewables** | Masdar 风能/太阳能（英国 Hornsea、Zarafshan 500MW、苏伊士湾）、NEOM Green Hydrogen（全球最大） |
+| **Megaprojects** | NEOM THE LINE（5000 亿美元）、Saudi National Cloud（60 亿美元超大规模数据中心） |
+| **Telecoms** | STC 持有 Telefónica 9.9% 股份，PIF 持有 Telecom Italia NetCo 20% |
+
+每项投资都会记录投资实体（DP World、Mubadala、PIF、ADNOC、Masdar、Saudi Aramco、ACWA Power 等）、目标国家、地理坐标、投资金额（美元）、持股比例、运营状态和年份。Investments 面板可按国家（SA/UAE）、行业、实体和状态过滤查看 - 点击任意一行会把地图导航到投资位置。
+
+在地球仪上，投资会显示为缩放气泡：≥500 亿美元的项目（NEOM）会以最大尺寸显示，而低于 10 亿美元的投资会使用更小的标记。颜色编码表示状态：绿色代表运营中，琥珀色代表在建，蓝色代表已宣布。
+
+---
+
+## 加密货币与稳定币
+
+### 稳定币锚定监测
+
+通过 CoinGecko API 和 2 分钟缓存监控五种主要稳定币（USDT、USDC、DAI、FDUSD、USDe）。每种币相对 1.00 美元锚定的偏离程度决定其健康状态：
+
+| 偏离 | 状态 | 指示 |
+| ----------- | ------------ | --------- |
+| ≤ 0.5% | ON PEG | Green |
+| 0.5% – 1.0% | SLIGHT DEPEG | Yellow |
+| > 1.0% | DEPEGGED | Red |
+
+面板会汇总稳定币总市值、24 小时成交量和整体健康状态（HEALTHY / CAUTION / WARNING）。`coins` 查询参数接受逗号分隔的 CoinGecko ID 列表，并会用 `[a-z0-9-]+` 正则进行校验，以防止注入。
+
+### BTC ETF 流向估算
+
+通过 Yahoo Finance 的 5 天图表 API 跟踪 10 只现货比特币 ETF（IBIT、FBTC、ARKB、BITB、GBTC、HODL、BRRR、EZBC、BTCO、BTCW）。由于 ETF 流向数据需要昂贵的终端订阅，系统会根据公开可用信号估算流向方向：
+
+- **价格变化** - 当日收盘价 vs 前一日收盘价决定方向
+- **成交量比率** - 当前成交量 / 过去平均成交量衡量信念强度
+- **流向规模** - `volume × price × direction × 0.1` 提供粗略美元估算
+
+这只是近似值，不是官方流向数据替代品，但能正确捕捉方向和相对规模。结果会缓存 15 分钟。
+
+---
+
+## 能源与大宗商品
+
+### 石油与能源分析
+
+Oil & Energy 面板跟踪来自美国能源信息署（EIA）API 的四个关键指标：
+
+| 指标 | 系列 | 更新频率 |
+| ----------------- | ------------------------- | -------------- |
+| **WTI Crude** | 现货价格（$/bbl） | 每周 |
+| **Brent Crude** | 现货价格（$/bbl） | 每周 |
+| **US Production** | 原油产量（Mbbl/d） | 每周 |
+| **US Inventory** | 商业原油库存 | 每周 |
+
+趋势检测会把周环比变化超过 ±0.5% 的情况标记为 rising 或 falling，低于阈值的读数显示为 stable。结果在客户端缓存 30 分钟。该面板为地缘政治分析提供能源市场背景 - 价格飙升往往与受监控冲突区域的供应中断和 chokepoint 关闭有关。
+
+---
+
+## 中央银行与贸易
+
+### BIS 央行数据
+
+Economic 面板集成了来自国际清算银行（BIS，央行的央行）的数据，提供三组互补数据集：
+
+| 数据集 | 描述 | 使用场景 |
+| --- | --- | --- |
+| **政策利率** | 主要经济体当前央行政策利率 | 比较货币政策立场 - 紧缩 vs 宽松 |
+| **实际有效汇率** | 经过通胀调整的贸易加权货币指数（REER） | 货币竞争力 - REER 上升代表走强，下降代表走弱 |
+| **Credit-to-GDP** | 非金融部门总信贷占 GDP 比例 | 信贷泡沫检测 - 高比例意味着杠杆过高 |
+
+数据通过 `economic/v1` proto service 中的三个专用 BIS RPC（`GetBisPolicyRates`、`GetBisExchangeRates`、`GetBisCredit`）获取。每组数据都有独立的 circuit breaker，缓存 TTL 为 30 分钟。面板会把政策利率渲染为带 spark bar 的排序表，把汇率渲染为方向趋势指示，把 credit-to-GDP 渲染为排名列表。BIS 数据的新鲜度会在 intelligence gap 系统中跟踪 - 过期或失败会以明确警告显示，而不是静默缺失。
+
+### WTO 贸易政策情报
+
+Trade Policy 面板提供全球贸易限制、关税和壁垒的实时可见性 - 对于追踪经济战、制裁影响和供应链中断风险至关重要。提供四个数据视图：
+
+| 标签页 | 数据源 | 内容 |
+| --- | --- | --- |
+| **Restrictions** | WTO 贸易监控 | 带有施加方/受影响国家、产品类别和生效日期的活跃贸易限制 |
+| **Tariffs** | WTO 关税数据库 | 国家对之间的关税率趋势（例如 US↔China），带历史数据点 |
+| **Flows** | WTO 贸易统计 | 双边贸易流量及同比变化 |
+| **Barriers** | WTO SPS/TBT 通知 | 带状态追踪的卫生、植物卫生和技术贸易壁垒 |
+| **Revenue** | 美国财政部 Monthly Treasury Statement | 月度美国关税收入，带年初至今汇总和同比比较 |
+
+`trade/v1` proto service 定义了五个 RPC。四个 WTO RPC 都有自己的 circuit breaker（30 分钟缓存 TTL）和 `upstreamUnavailable` 信号，以便在 WTO 端点暂时不可达时优雅降级。第五个 RPC（`GetCustomsRevenue`）从 Railway seed 提供美国财政部关税收入数据（免费 API，无需 key）。该面板可在 FULL 和 FINANCE 变体中使用。WTO 数据作为 `wto_trade` 进入 data freshness tracker，财政收入作为 `treasury_revenue`，当任一 feed 过期时会显示 intelligence gap 警告。
+
+Revenue 标签页在贸易政策变化活跃时期尤其重要。由于 2025-2026 关税升级，美国关税收入从大约每月 70 亿美元（2025 年前）跃升至每月 270-310 亿美元。WTO 年度关税数据大约滞后一年，因此月度财政部收入数据可以提供几乎实时的财政影响可见性。Revenue 标签页会按财政年度提供年初至今汇总，并使用匹配的财政月数做同比比较（例如 FY2026 Oct-Feb vs FY2025 Oct-Feb），同时提供一个月度表格，高亮收入超过上一年同月平均值两倍的月份。在没有 WTO API key 的桌面端，Revenue 标签页仍然可用，因为财政部数据不需要认证。
+
+---
+
+## 供应链
+
+### 供应链中断情报
+
+Supply Chain 面板通过三个互补维度提供全球物流风险的实时可见性 - 战略 chokepoint 健康、航运成本趋势和关键矿产集中度 - 从而能够尽早发现会产生经济和地缘政治连锁反应的中断。
+
+**Chokepoints 标签页** - 通过交叉参考实时导航警报与 AIS 船舶中断数据，监控 9 条战略水道（Suez Canal、Strait of Malacca、Strait of Hormuz、Bab el-Mandeb、Panama Canal、Taiwan Strait、Strait of Gibraltar、Bosphorus、Dardanelles）。每个 chokepoint 都会根据三部分公式计算出一个中断分数（0–100）：基线威胁级别（war zone / critical / high / elevated / normal）、活跃警报计数（有上限的贡献）和 AIS 拥堵严重度 - 映射为颜色编码状态指示（绿/黄/红）。Chokepoint 识别先通过文本证据匹配（包含主要词和区域词的关键词打分），再回退到地理邻近，从而避免把提到一个 chokepoint、但地理上更靠近另一个 chokepoint 的事件误分类。数据使用 5 分钟 TTL 缓存，以获得近实时感知。
+
+**Shipping Rates 标签页** - 跟踪两个 Federal Reserve Economic Data（FRED）系列：Deep Sea Freight Producer Price Index (`PCU483111483111`) 和 Freight Transportation Services Index (`TSIFRGHT`)。统计性 spike detection 会把相对近期历史的异常价格变化标出来。内联 SVG sparkline 会一眼呈现 24 个月的运费历史。缓存 1 小时，以反映底层数据的周度发布节奏。
+
+**Critical Minerals 标签页** - 对 2024 年全球生产数据应用 **Herfindahl-Hirschman Index (HHI)**，分析对技术和防务制造至关重要的矿物 - 锂、钴、稀土、镓、锗等。HHI 衡量供应集中风险：由单一生产者主导的市场得分接近 10,000，而完全分散的市场接近 0。每种矿物都会显示前三大生产国及其市场份额百分比，标记代表战略脆弱性的单国依赖（例如中国在稀土加工中的主导地位）。这个标签页使用静态生产数据，缓存 24 小时，无需外部 API。
+
+该面板可在 FULL（World Monitor）变体中使用，并与基础设施级联模型集成 - 当 chokepoint 中断与受影响贸易路线的高矿产集中风险同时出现时，合并信号会进入收敛检测。
+
+另请参见 [Maritime Intelligence](/maritime-intelligence) 了解船舶追踪和暗船检测。

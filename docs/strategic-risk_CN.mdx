@@ -1,0 +1,253 @@
+---
+title: "战略风险"
+description: "将所有情报模块合成为统一战略评估的综合风险评分，包括 Pentagon Pizza Index 和服务端风险计算。"
+---
+
+<p align="center">
+  <a href="./strategic-risk.mdx"><strong>English</strong></a> &nbsp;·&nbsp;
+  <a href="./strategic-risk_CN.mdx"><strong>中文</strong></a>
+</p>
+
+Strategic Risk 系统提供一个综合仪表盘，把所有情报模块合成为单一风险评估，将收敛检测、国家不稳定性和基础设施监控合并为可执行的风险等级。
+
+## 战略风险总览
+
+Strategic Risk Overview 会把所有情报模块综合成一个单一的风险评估。
+
+### 综合分数（0-100）
+
+战略风险分数由三个组件构成：
+
+| 组件 | 权重 | 计算 |
+|-----------|--------|-------------|
+| **Convergence** | 40% | `min(100, convergence_zones × 20)` |
+| **CII Deviation** | 35% | `min(100, avg_deviation × 2)` |
+| **Infrastructure** | 25% | `min(100, incidents × 25)` |
+
+### 风险等级
+
+| 分数 | 级别 | 趋势图标 | 含义 |
+|-------|-------|------------|---------|
+| 70-100 | **Critical** | Escalating | 多个危机正在汇聚 |
+| 50-69 | **Elevated** | Stable | 全球紧张局势升高 |
+| 30-49 | **Moderate** | Stable | 正常波动 |
+| 0-29 | **Low** | De-escalating | 异常平静的时期 |
+
+### 统一告警系统
+
+来自所有模块的告警会通过**时间和空间去重**合并：
+
+- **时间窗口**：2 小时内的告警可能被合并
+- **距离阈值**：200km 内的告警可能被合并
+- **同一国家**：影响同一国家的告警可能被合并
+
+当告警合并后，它们会变成**复合告警**，展示完整图景：
+
+```
+Type: Composite Alert
+Title: Convergence + CII + Infrastructure: Ukraine
+Components:
+  - Geographic Convergence: 4 event types in Kyiv region
+  - CII Spike: Ukraine +15 points (Critical)
+  - Infrastructure: Black Sea cables at risk
+Priority: Critical
+```
+
+### 告警优先级
+
+| 优先级 | 条件 |
+|----------|----------|
+| **Critical** | CII 处于 critical、收敛分数 ≥80、级联影响 critical |
+| **High** | CII 处于 high、收敛分数 ≥60、级联影响 ≥5 个国家 |
+| **Medium** | CII 变化 ≥10 分、收敛分数 ≥40 |
+| **Low** | 小变动和低影响事件 |
+
+### 趋势检测
+
+系统会跟踪综合分数随时间的变化：
+
+- 第一次测量建立基线（显示 “Stable”）
+- 后续变化 ±5 分会触发趋势变化
+- 这样可以防止初始化时出现错误的 “escalating” 信号
+
+## 五角大楼披萨指数（PizzINT）
+
+仪表盘集成了战略地点附近的实时人流数据。这个“Pizza Index” 概念会追踪五角大楼、Langley 以及其他设施附近餐馆的晚间活动激增，为危机活动提供一个非传统指标。
+
+### 工作方式
+
+系统汇总被监控地点的“相对正常值百分比”指标：
+
+1. **Locations**：五角大楼、CIA、NSA、国务院及其他设施附近的快餐店、披萨店和便利店
+2. **Aggregation**：把活动百分比取平均，并封顶到 100%
+3. **Spike Detection**：超过基线的地点会被标记
+
+### DEFCON 风格告警
+
+汇总活动会映射为 5 级 readiness 量表：
+
+| 级别 | 阈值 | 标签 | 含义 |
+|-------|-----------|-------|---------|
+| **DEFCON 1** | ≥90% | COCKED PISTOL | 最高戒备；危机响应激活 |
+| **DEFCON 2** | ≥75% | FAST PACE | 高活动量；重大事件正在进行 |
+| **DEFCON 3** | ≥50% | ROUND HOUSE | 提升态势；高于正常运作 |
+| **DEFCON 4** | ≥25% | DOUBLE TAKE | 提高警惕 |
+| **DEFCON 5** | <25% | FADE OUT | 正常和平时期运作 |
+
+### GDELT 紧张对
+
+指标还会显示来自 GDELT（Global Database of Events, Language, and Tone）的地缘紧张分数：
+
+| Pair | 监测关系 |
+|------|----------------------|
+| USA ↔ Russia | 主要核大国对手 |
+| USA ↔ China | 经济与军事竞争 |
+| USA ↔ Iran | 中东地区紧张 |
+| Israel ↔ Iran | 直接冲突潜力 |
+| China ↔ Taiwan | 跨海峡关系 |
+| Russia ↔ Ukraine | 活跃冲突区 |
+
+每个对都显示：
+
+- **当前紧张分数**（GDELT 的归一化指标）
+- **7 天趋势**（上升、下降、稳定）
+- **相对前期的百分比变化**
+
+这为活动水平提供背景。五角大楼附近活动激增，如果同时 China-Taiwan 紧张度上升，其权重会与安静时期不同。
+
+## 相关资产
+
+新闻聚类会自动补充附近的关键基础设施。当故事提到某个地理区域时，系统会在 600km 范围内识别相关资产，提供即时作战背景。
+
+### 资产类型
+
+| 类型 | 来源 | 示例 |
+|------|--------|----------|
+| **Pipelines** | 88 条全球路线 | Nord Stream、Keystone、Trans-Siberian |
+| **Undersea Cables** | 86 条主要电缆 | TAT-14、SEA-ME-WE、Pacific Crossing |
+| **AI Datacenters** | 313 个集群 | Azure East US、GCP Council Bluffs |
+| **Military Bases** | 226 个设施 | Ramstein、Diego Garcia、Guam |
+| **Nuclear Facilities** | 100+ 个站点 | 电厂、武器实验室、浓缩设施 |
+
+### 地点推断
+
+系统通过以下方式推断新闻故事的地理焦点：
+
+1. **关键词匹配**：把标题与热点关键词列表比对（例如 “Taiwan” 映射到 Taiwan Strait hotspot）
+2. **置信度评分**：多个关键词命中会提高地点置信度
+3. **回退到冲突区**：如果没有热点命中，就检查活跃冲突区
+
+### 距离计算
+
+资产会按相对于推断位置的 Haversine 距离排序：
+
+```
+d = 2r × arcsin(√(sin²(Δφ/2) + cos(φ₁) × cos(φ₂) × sin²(Δλ/2)))
+```
+
+每种资产最多显示 3 个，并按距离排序。
+
+### 示例上下文
+
+一条关于 “德国管道爆炸” 的新闻聚类会显示：
+
+- **Pipelines**：Nord Stream（23km）、Yamal-Europe（156km）
+- **Cables**：TAT-14 landing（89km）
+- **Bases**：Ramstein（234km）
+
+点击任一资产会把地图缩放到其位置，并显示详细信息。
+
+## 服务端风险分数 API
+
+战略风险和国家不稳定指数（CII）分数是在服务端预计算的，而不是在浏览器中计算。这样就消除了 “cold start” 问题，即新用户在系统积累足够信息生成分数之前会看到空白数据。
+
+### 工作方式
+
+`GetRiskScores` RPC handler（`get-risk-scores.ts`）：
+
+1. 拉取 ACLED 中最近的 protest/riot/battle/explosion/civilian-violence 数据（7 天窗口）
+2. 从 Redis 拉取辅助来源：UCDP 冲突、中断、气候、网络威胁、火灾、GPS 干扰、伊朗事件、OREF 警报
+3. 用与前端相同的公式为 24 个一线国家计算 CII
+4. 基于 top-5 CII 的加权结果推导战略风险
+5. 将结果缓存到 Redis（10 分钟 TTL、1 小时旧数据回退）
+
+### CII 分数计算
+
+每个国家的分数由静态基线（40%）和动态事件分数（60%）组成，并叠加补充加成和下限。
+
+**Baseline Risk**（0-50 分）：反映结构性脆弱性的静态地缘政治风险。
+
+| 国家 | 基线 | 原因 |
+|---------|-------|-----------|
+| Syria, Ukraine, Yemen | 50 | 活跃冲突区 |
+| Myanmar, North Korea, Cuba | 45 | 民众动荡、威权 |
+| Iran, Israel, Pakistan, Venezuela, Mexico | 35-40 | 地区紧张、有组织犯罪 |
+| Taiwan, Saudi Arabia, Turkey, Russia, China, India | 20-35 | 中等不稳定 |
+| Brazil, Mexico | 15-35 | 波动性不稳定 |
+| Germany, UK, US, France, Poland, UAE | 5-10 | 稳定/低风险 |
+
+**Event Score** 包含四个子组件：
+
+| 子组件 | 权重 | 评分 |
+|---------------|--------|-----------|
+| Unrest | 25% | 民主国家用 Log2 衰减（multiplier < 0.7），威权国家用线性。基础上限 50，再加 protest fatality boost（最多 30），再加 outage severity boost（TOTAL 30 分、MAJOR 15 分、PARTIAL 5 分，上限 50） |
+| Conflict | 30% | 加权 ACLED 事件（battle x3、explosion x4、civilian violence x5）、sqrt 缩放死亡人数、平民加成、伊朗打击严重度、OREF 警报加成（仅 IL：25 基础 + 每个警报 5 分） |
+| Security | 20% | GPS/GNSS 干扰 hex（high：5 分、medium：2 分，上限 35） |
+| Information | 25% | 保留（0）；没有服务端新闻数据 |
+
+**Floors**（最低分保证）：
+
+| 下限类型 | 阈值 | 触发条件 |
+|------------|-----------|---------|
+| UCDP active war | >= 70 | UCDP intensity level 2+ |
+| UCDP minor conflict | >= 50 | UCDP intensity level 1 |
+| Advisory do-not-travel | >= 60 | UA、SY、YE、MM |
+| Advisory reconsider | >= 50 | IL、IR、PK、VE、CU、MX |
+
+**补充加成**：警报加成（+15/+10/+5）、OREF 混合加成（IL +15 active + history tiers）、气候（最多 +15）、网络（最多 +10）、火灾（最多 +8）。
+
+### 事件重要性倍率
+
+某些国家的事件具有更高的全球意义：
+
+| 倍率 | 国家 | 原因 |
+|------------|-----------|-----------|
+| 3.0x | North Korea | 任何可见动荡都极不寻常 |
+| 2.0-2.5x | China, Russia, Iran, Saudi Arabia, Cuba | 威权国家会压制抗议 |
+| 1.5-1.8x | Taiwan, Pakistan, Myanmar, Venezuela, UAE | 地区热点 |
+| 1.0-1.2x | Mexico, Turkey | 中等重要性 |
+| 0.5-0.8x | US, UK, France, Germany, Poland, Ukraine, Syria, Yemen, Israel, India, Brazil | 抗议较常见，或已被下限覆盖 |
+
+### 战略风险推导
+
+综合战略风险分数通过 top 5 CII 分数的加权平均计算：
+
+```
+Weights: [1.0, 0.85, 0.70, 0.55, 0.40] (total: 3.5)
+Strategic Risk = (Σ CII[i] × weight[i]) / 3.5 × 0.7 + 15
+```
+
+排名靠前的国家贡献最大，排名较低的国家影响逐渐减弱。
+
+### 数据源
+
+| 来源 | Redis Key | 用途 |
+|--------|-----------|----------|
+| ACLED | 通过 API 实时获取 | 抗议、骚乱、战斗、爆炸、平民暴力、死亡人数 |
+| UCDP | `conflict:ucdp-events:v1` | 战争/小冲突下限 |
+| Outages | `infra:outages:v1` | 动荡中断加成（TOTAL/MAJOR/PARTIAL 严重度） |
+| Climate | `climate:anomalies:v1` | 气候严重度加成 |
+| Cyber | `cyber:threats-bootstrap:v2` | 网络威胁数量加成 |
+| Fires | `wildfire:fires:v1` | 野火数量加成 |
+| GPS Jamming | `intelligence:gpsjam:v2` | 安全部件（高/中 hex 等级） |
+| Iran Events | `conflict:iran-events:v1` | 带严重度权重的打击加成 |
+| OREF Alerts | `relay:oref:history:v1` | 以色列冲突加成 + 混合加成（activeAlertCount、historyCount24h） |
+
+### 回退行为
+
+当上游数据不可用（API 错误、速率限制）时：
+
+1. **Stale cache**（1 小时 TTL）：返回最近分数
+2. **Baseline fallback**：只用静态基线和警报下限计算分数
+
+这样即使上游宕机，仪表盘也始终能显示有意义的数据。relay 的 CII seed 循环已禁用；RPC handler 会通过 `cachedFetchJson` 按需计算分数，并合并并发请求。
